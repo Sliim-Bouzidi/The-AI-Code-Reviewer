@@ -1,0 +1,16 @@
+{
+  "repo": "Sliim-Bouzidi/Nexora",
+  "description": "Test PR: article search endpoint + BlogSearch component, with planted issues.",
+  "expected": [
+    { "file": "src/app/api/articles/search/route.ts", "lines": [12, 16], "category": "security", "issue": "SQL injection: q is interpolated into the query string" },
+    { "file": "src/app/api/articles/search/route.ts", "lines": [18, 19], "category": "bug", "issue": "Pagination off by one: page 1 skips the first PAGE_SIZE results (should be (page - 1) * PAGE_SIZE)" },
+    { "file": "src/components/BlogSearch.tsx", "lines": [12, 15], "category": "security", "issue": "XSS: excerpt/query injected through dangerouslySetInnerHTML; query also used as an unescaped RegExp" },
+    { "file": "src/components/BlogSearch.tsx", "lines": [59, 65], "category": "bug", "issue": "Previous/Next are not bounded: page can go below 1 or past the last page" }
+  ],
+  "acceptable_extra": [
+    "query not URL-encoded in the fetch URL",
+    "no debounce / stale responses can overwrite newer ones",
+    "missing fetch error handling",
+    "index used as React key"
+  ]
+}

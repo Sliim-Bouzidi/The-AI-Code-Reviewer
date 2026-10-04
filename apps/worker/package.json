@@ -1,0 +1,22 @@
+{
+  "name": "@codereview/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@codereview/db": "workspace:*",
+    "@codereview/llm": "workspace:*",
+    "@codereview/shared": "workspace:*",
+    "@octokit/app": "^16.1.4",
+    "bullmq": "^6.3.11",
+    "ioredis": "^6.0.0",
+    "minimatch": "^10.2.6"
+  }
+}

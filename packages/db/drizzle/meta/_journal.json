@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791119101322,
+      "tag": "0000_acoustic_the_fury",
+      "breakpoints": true
+    }
+  ]
+}
