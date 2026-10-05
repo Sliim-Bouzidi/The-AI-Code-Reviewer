@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import {
   eq, findings as findingsTable, installations, pullRequests, repoSettings, repositories, reviewEvents, reviews,
 } from '@codereview/db';
-import { DEFAULT_REPO_SETTINGS } from '@codereview/shared';
+import { CHANNELS, DEFAULT_REPO_SETTINGS } from '@codereview/shared';
 import type { CandidateFinding, RepoSettings, ReviewJobData } from '@codereview/shared';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
 import { changedSymbols, parseFile } from '../index/symbols.js';
+import { notifyReview } from '../notify.js';
+import { publish } from '../pubsub.js';
 import { downloadFiles, fetchPrDiff, postReview, reactToPr, repoRef, startCheckRun, updateCheckRun } from '../github.js';
 import type { RepoRef } from '../github.js';
 import { retrieveContext } from './context.js';
@@ -239,6 +241,7 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
     } else {
       await emit(db, review.id, 'post', 'skipped', 'local review, nothing to post');
     }
+    await notifyReview(db, review.id, 'completed');
     log('review', 'completed', { reviewId: review.id, findings: final.length, ms: Date.now() - started });
   } catch (err) {
     const message = (err as Error).message.slice(0, 500);
@@ -246,6 +249,7 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
       .update(reviews)
       .set({ status: 'failed', error: message, durationMs: Date.now() - started })
       .where(eq(reviews.id, review.id));
+    await publish(CHANNELS.review(review.id), { type: 'review', reviewId: review.id, status: 'failed' });
     if (gh && checkRunId) {
       await updateCheckRun(gh.ref, checkRunId, {
         conclusion: 'neutral',

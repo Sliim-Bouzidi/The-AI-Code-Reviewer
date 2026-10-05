@@ -53,7 +53,8 @@ export default function ReviewPage() {
   const review = useQuery({
     queryKey: ['review', id],
     queryFn: () => api.review(id),
-    refetchInterval: (q) => (q.state.data && ['queued', 'running'].includes(q.state.data.status) ? 1_500 : false),
+    // updates arrive over SSE (see ReviewTimeline); this slow poll is only a safety net
+    refetchInterval: (q) => (q.state.data && ['queued', 'running'].includes(q.state.data.status) ? 10_000 : false),
   });
   const repos = useQuery({ queryKey: ['repos'], queryFn: api.repos });
 

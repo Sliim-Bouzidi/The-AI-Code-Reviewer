@@ -179,6 +179,24 @@ export const reviewEvents = pgTable(
   (t) => [index('review_events_review_created').on(t.reviewId, t.createdAt)],
 );
 
+/** Dashboard notifications ("review finished", "indexing failed", ...). Written by the worker. */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'review_completed' | 'review_failed' | 'index_ready' | 'index_failed'>().notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+    link: text('link'), // dashboard path to open, e.g. /dashboard/reviews/<id>
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('notifications_user_created').on(t.userId, t.createdAt)],
+);
+
 export const webhookDeliveries = pgTable('webhook_deliveries', {
   deliveryId: text('delivery_id').primaryKey(),
   event: text('event'),

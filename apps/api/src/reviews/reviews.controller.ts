@@ -1,17 +1,19 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import {
   and, asc, count, desc, eq, findings, installations, pullRequests, repositories, reviewEvents, reviews,
 } from '@codereview/db';
 import type { Db } from '@codereview/db';
-import { DEFAULT_JOB_OPTIONS, PaginationQuerySchema, QUEUES, ReviewDiffBodySchema } from '@codereview/shared';
+import { CHANNELS, DEFAULT_JOB_OPTIONS, PaginationQuerySchema, QUEUES, ReviewDiffBodySchema } from '@codereview/shared';
 import type { ReviewDiffBody, ReviewJobData, ReviewStatusResponse, Stats } from '@codereview/shared';
 import type { z } from 'zod';
 import { AuthGuard, CurrentUser } from '../auth/auth.guard.js';
 import type { AuthUser } from '../auth/auth.guard.js';
 import { DB } from '../common/db.module.js';
 import { ZodPipe } from '../common/zod.pipe.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { ReposService } from '../repos/repos.service.js';
 
 const reviewColumns = {
@@ -40,6 +42,7 @@ export class ReviewsController {
     @Inject(DB) private readonly db: Db,
     @InjectQueue(QUEUES.REVIEW) private readonly reviewQueue: Queue<ReviewJobData>,
     private readonly repos: ReposService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   /** A review is visible to whoever requested it (MCP) or owns its repo (webhook). */
@@ -120,7 +123,14 @@ export class ReviewsController {
     return { status: review.status, error: review.error };
   }
 
-  /** Pipeline timeline (fetch, static analysis, LLM, ...) for the live view. Poll while the review runs. */
+  /** Real-time stream (SSE) of this review's pipeline steps and status changes. */
+  @Get('reviews/:id/stream')
+  async stream(@CurrentUser() user: AuthUser, @Param('id') id: string, @Req() req: Request, @Res() res: Response) {
+    const review = await this.load(user.id, id); // ownership check before streaming anything
+    return this.realtime.stream(req, res, CHANNELS.review(review.id));
+  }
+
+  /** Pipeline timeline (fetch, static analysis, LLM, ...) for the live view. */
   @Get('reviews/:id/events')
   async events(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const review = await this.load(user.id, id);

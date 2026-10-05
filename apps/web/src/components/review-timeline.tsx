@@ -1,12 +1,14 @@
 'use client';
 
 import { IconCheck, IconCircleDashed, IconPlayerSkipForward, IconX } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import type { RealtimeEvent } from '@codereview/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { useApi } from '@/lib/api';
 import type { ReviewEvent } from '@/lib/api';
+import { useEventStream } from '@/lib/use-event-stream';
 import { formatDuration } from '@/lib/utils';
 
 const STAGES: { id: string; label: string; hint: string }[] = [
@@ -34,14 +36,25 @@ function StageIcon({ status }: { status: ReviewEvent['status'] | 'pending' }) {
   return <IconCircleDashed className='text-muted-foreground size-4' />;
 }
 
-/** Live pipeline view: polls once a second while the review is queued/running. */
+/**
+ * Live pipeline view. While the review runs, the worker publishes each step and the API pushes it
+ * here over SSE; we then re-read the steps (and the review itself) from the database.
+ */
 export function ReviewTimeline({ reviewId, status }: { reviewId: string; status: string }) {
   const api = useApi();
+  const qc = useQueryClient();
   const active = status === 'queued' || status === 'running';
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['review-events', reviewId] });
+    void qc.invalidateQueries({ queryKey: ['review', reviewId] });
+  };
+  // only stream while the review can still change
+  const live = useEventStream<RealtimeEvent>(active ? `/api/reviews/${reviewId}/stream` : null, refresh, refresh);
   const events = useQuery({
     queryKey: ['review-events', reviewId],
     queryFn: () => api.reviewEvents(reviewId),
-    refetchInterval: (q) => (active || q.state.data?.status === 'running' || q.state.data?.status === 'queued' ? 1_000 : false),
+    // safety net if the stream is down
+    refetchInterval: active && !live ? 3_000 : false,
   });
   const byStage = latestByStage(events.data?.items ?? []);
   if (!events.data || events.data.items.length === 0) {

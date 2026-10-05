@@ -1,6 +1,7 @@
 'use client';
 
 import { IconMoon, IconSun } from '@tabler/icons-react';
+import { NotificationsBell } from '@/components/notifications-bell';
 import { useTheme } from '@/components/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -15,7 +16,8 @@ export default function Header() {
         <Separator orientation='vertical' className='mr-2 h-4 data-vertical:self-center' />
         <span className='text-muted-foreground text-sm'>Dashboard</span>
       </div>
-      <div className='px-4'>
+      <div className='flex items-center gap-2 px-4'>
+        <NotificationsBell />
         <Button
           variant='secondary'
           size='icon'
