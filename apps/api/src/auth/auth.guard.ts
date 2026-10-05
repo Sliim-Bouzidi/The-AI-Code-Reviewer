@@ -50,7 +50,9 @@ export class AuthGuard implements CanActivate {
         throw new UnauthorizedException('Invalid session');
       }
     }
-    if (!token && process.env.AUTH_DEV_BYPASS === 'true') {
+    // Dev bypass only on installs without real sign-in: once Clerk is configured, a request without a
+    // token is rejected even if AUTH_DEV_BYPASS was left on, so nobody can skip the login via the API.
+    if (!token && process.env.AUTH_DEV_BYPASS === 'true' && !process.env.CLERK_SECRET_KEY) {
       return { id: await this.upsertUser('dev-user'), via: 'dev' };
     }
     throw new UnauthorizedException();
