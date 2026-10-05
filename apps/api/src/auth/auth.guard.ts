@@ -9,7 +9,7 @@ import { DB } from '../common/db.module.js';
 
 export interface AuthUser {
   id: string;
-  via: 'api_key' | 'clerk' | 'dev';
+  via: 'api_key' | 'clerk';
 }
 
 export const hashApiKey = (raw: string) => createHash('sha256').update(raw).digest('hex');
@@ -18,7 +18,8 @@ export const hashApiKey = (raw: string) => createHash('sha256').update(raw).dige
  * One guard for both kinds of client:
  *  - MCP server: `Authorization: Bearer crk_...` (API key, stored hashed)
  *  - Dashboard:  `Authorization: Bearer <Clerk session JWT>`
- * With AUTH_DEV_BYPASS=true, a request without a token acts as a local "dev" user.
+ * Sign-in is mandatory: there is no anonymous or "dev user" mode. Without CLERK_SECRET_KEY the
+ * dashboard cannot sign anyone in, and only API keys (MCP) are accepted.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -50,12 +51,9 @@ export class AuthGuard implements CanActivate {
         throw new UnauthorizedException('Invalid session');
       }
     }
-    // Dev bypass only on installs without real sign-in: once Clerk is configured, a request without a
-    // token is rejected even if AUTH_DEV_BYPASS was left on, so nobody can skip the login via the API.
-    if (!token && process.env.AUTH_DEV_BYPASS === 'true' && !process.env.CLERK_SECRET_KEY) {
-      return { id: await this.upsertUser('dev-user'), via: 'dev' };
-    }
-    throw new UnauthorizedException();
+    throw new UnauthorizedException(
+      process.env.CLERK_SECRET_KEY ? 'Sign in required' : 'Sign-in is not configured: set the Clerk keys in .env',
+    );
   }
 
   private async upsertUser(clerkId: string): Promise<string> {

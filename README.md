@@ -6,13 +6,15 @@ You can watch it work in three places: the PR on GitHub (an "AI Code Review" che
 
 ## Run it (Docker, 4 steps)
 
-You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) and a free [Gemini API key](https://aistudio.google.com/apikey).
+You need [Docker Desktop](https://www.docker.com/products/docker-desktop/), a free [Clerk](https://dashboard.clerk.com) application for sign-in (enable GitHub as a sign-in method), and a free [Gemini API key](https://aistudio.google.com/apikey).
+
+Sign-in is **required**: without the Clerk keys the dashboard stays locked and shows the setup steps instead.
 
 ```bash
 git clone https://github.com/Sliim-Bouzidi/The-AI-Code-Reviewer.git
 cd The-AI-Code-Reviewer
 cp .env.example .env          # Windows: copy .env.example .env
-# open .env and paste your key after GEMINI_API_KEY=
+# open .env and fill in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY and GEMINI_API_KEY
 docker compose up --build
 ```
 

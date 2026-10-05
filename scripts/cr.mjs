@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 if (existsSync(resolve(root, '.env'))) process.loadEnvFile(resolve(root, '.env'));
 const API = (process.env.CODEREVIEW_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
-const KEY = process.env.CODEREVIEW_API_KEY; // optional when AUTH_DEV_BYPASS=true
+const KEY = process.env.CODEREVIEW_API_KEY; // required: create one on the dashboard's API keys page
 
 async function api(method, path, body) {
   let res;
@@ -28,7 +28,7 @@ async function api(method, path, body) {
   } catch {
     fail(`Cannot reach the API at ${API}. Is "pnpm dev" running?`);
   }
-  if (res.status === 401) fail('401 Unauthorized: set CODEREVIEW_API_KEY or AUTH_DEV_BYPASS=true in .env');
+  if (res.status === 401) fail('401 Unauthorized: set CODEREVIEW_API_KEY in .env (create a key on the dashboard's API keys page)');
   if (!res.ok) fail(`${method} ${path} -> ${res.status} ${(await res.text()).slice(0, 300)}`);
   return res.status === 204 ? null : res.json();
 }

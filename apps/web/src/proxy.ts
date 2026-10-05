@@ -5,7 +5,8 @@ import type { NextFetchEvent, NextRequest } from 'next/server';
 // Makes the Clerk session available to server code. The sign-in check itself is in app/dashboard/layout.tsx.
 const withClerk = clerkMiddleware();
 
-// Without Clerk keys the dashboard is open and the API runs with AUTH_DEV_BYPASS (local testing).
+// Without Clerk keys there is no session to read; the dashboard layout then redirects to /sign-in,
+// which shows the setup instructions (sign-in is mandatory).
 export default function proxy(req: NextRequest, event: NextFetchEvent) {
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return NextResponse.next();
   return withClerk(req, event);
