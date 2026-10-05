@@ -23,12 +23,16 @@ export function ReviewsTable({ reviews, repoNames }: { reviews: Review[]; repoNa
           const title = r.prNumber != null ? `#${r.prNumber} ${r.prTitle ?? ''}` : 'Local diff review';
           return (
           <TableRow key={r.id}>
-            <TableCell className='max-w-[28rem]'>
-              {/* long PR titles are cut with "…"; the full title shows on hover */}
-              <Link href={`/dashboard/reviews/${r.id}`} title={title} className='block truncate font-medium underline-offset-4 hover:underline'>
+            <TableCell>
+              {/* table cells ignore max-width, so the limit sits on the content; full title on hover */}
+              <Link
+                href={`/dashboard/reviews/${r.id}`}
+                title={title}
+                className='block max-w-[18rem] truncate font-medium underline-offset-4 hover:underline md:max-w-[24rem] xl:max-w-[32rem]'
+              >
                 {title}
               </Link>
-              <div className='text-muted-foreground truncate text-xs'>
+              <div className='text-muted-foreground max-w-[18rem] truncate text-xs md:max-w-[24rem] xl:max-w-[32rem]'>
                 {r.status === 'failed' ? r.error : (r.summary ?? 'No summary yet')}
               </div>
             </TableCell>
