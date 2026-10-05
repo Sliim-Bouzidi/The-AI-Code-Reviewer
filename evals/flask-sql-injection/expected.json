@@ -1,0 +1,6 @@
+{
+  "description": "User input concatenated into a SQL query.",
+  "expected": [
+    { "file": "app.py", "lines": [10, 10], "category": "security", "issue": "SQL injection: name is concatenated into the query (use a parameterised query)" }
+  ]
+}

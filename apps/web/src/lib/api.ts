@@ -16,6 +16,22 @@ export interface ApiKey {
   revokedAt: string | null;
 }
 
+export interface SetupStatus {
+  githubAppConfigured: boolean;
+  appSlug: string | null;
+  webhookUrl: string | null;
+  llmConfigured: boolean;
+}
+
+export interface ReviewEvent {
+  id: string;
+  stage: string;
+  status: 'running' | 'done' | 'skipped' | 'failed';
+  detail: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -72,6 +88,11 @@ export function useApi() {
         request<PaginatedReviews>('GET', `/api/repos/${repoId}/reviews?page=${page}&pageSize=${pageSize}`),
       review: (id: string) => request<ReviewWithFindings>('GET', `/api/reviews/${id}`),
       installUrl: () => request<{ url: string }>('GET', '/api/github/install-url'),
+      setupStatus: () => request<SetupStatus>('GET', '/api/setup/status'),
+      githubAppManifest: () =>
+        request<{ postUrl: string; manifest: Record<string, unknown> }>('POST', '/api/setup/github-app'),
+      reviewEvents: (id: string) =>
+        request<{ status: string; items: ReviewEvent[] }>('GET', `/api/reviews/${id}/events`),
       keys: () => request<ApiKey[]>('GET', '/api/keys'),
       createKey: (name: string) => request<ApiKey & { key: string }>('POST', '/api/keys', { name }),
       revokeKey: (id: string) => request<void>('DELETE', `/api/keys/${id}`),

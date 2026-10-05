@@ -83,6 +83,7 @@ export const reviews = pgTable(
     durationMs: integer('duration_ms'),
     summary: text('summary'),
     error: text('error'),
+    checkRunId: bigint('check_run_id', { mode: 'number' }), // GitHub check run shown on the PR
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('reviews_repo_created').on(t.repoId, t.createdAt)],
@@ -144,6 +145,37 @@ export const apiKeys = pgTable('api_keys', {
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
 });
+
+/**
+ * The GitHub App this install talks to (single row). Filled by the dashboard's one-click
+ * "Create GitHub App" flow (GitHub manifest); the GITHUB_APP_* env vars are only a fallback.
+ */
+export const githubApp = pgTable('github_app', {
+  id: text('id').primaryKey().default('default'),
+  appId: bigint('app_id', { mode: 'number' }).notNull(),
+  slug: text('slug').notNull(),
+  privateKey: text('private_key').notNull(),
+  webhookSecret: text('webhook_secret').notNull(),
+  htmlUrl: text('html_url'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One row per pipeline stage of a review, so the dashboard can show the agent working live. */
+export const reviewEvents = pgTable(
+  'review_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reviewId: uuid('review_id')
+      .notNull()
+      .references(() => reviews.id, { onDelete: 'cascade' }),
+    stage: text('stage').notNull(), // fetch | static_analysis | context | llm | validate | post
+    status: text('status').$type<'running' | 'done' | 'skipped' | 'failed'>().notNull(),
+    detail: text('detail'), // short human text, never source code
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('review_events_review_created').on(t.reviewId, t.createdAt)],
+);
 
 export const webhookDeliveries = pgTable('webhook_deliveries', {
   deliveryId: text('delivery_id').primaryKey(),

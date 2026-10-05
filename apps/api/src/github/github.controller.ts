@@ -1,17 +1,45 @@
-import { BadRequestException, Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthGuard, CurrentUser } from '../auth/auth.guard.js';
 import type { AuthUser } from '../auth/auth.guard.js';
 import { GithubService } from './github.service.js';
 
-@Controller('api/github')
+const webUrl = () => (process.env.WEB_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+
+@Controller('api')
 export class GithubController {
   constructor(private readonly github: GithubService) {}
 
-  @Get('install-url')
+  @Get('github/install-url')
   @UseGuards(AuthGuard)
-  installUrl(@CurrentUser() user: AuthUser) {
-    return { url: this.github.installUrl(user.id) };
+  async installUrl(@CurrentUser() user: AuthUser) {
+    return { url: await this.github.installUrl(user.id) };
+  }
+
+  /** What the setup wizard needs to know: is the GitHub App created, is there a webhook URL, is an LLM key set. */
+  @Get('setup/status')
+  @UseGuards(AuthGuard)
+  setupStatus() {
+    return this.github.setupStatus();
+  }
+
+  /** Step 1 of one-click setup: the manifest the browser submits to GitHub. */
+  @Post('setup/github-app')
+  @UseGuards(AuthGuard)
+  manifest(@CurrentUser() user: AuthUser) {
+    return this.github.manifest(user.id);
+  }
+
+  /**
+   * Step 2: GitHub redirects the browser here with a one-time `code` after the user confirms the app.
+   * We trade it for the credentials, then send the user straight on to install the app on their repos.
+   */
+  @Get('github/manifest-callback')
+  async manifestCallback(@Query('code') code: string | undefined, @Query('state') state: string | undefined, @Res() res: Response) {
+    const userId = this.github.userIdFromState(state);
+    if (!userId || !code) throw new BadRequestException('Invalid setup callback');
+    await this.github.completeManifest(code);
+    res.redirect(await this.github.installUrl(userId));
   }
 
   /**
@@ -19,7 +47,7 @@ export class GithubController {
    * user is identified by the signed `state` created in install-url.
    * Demo limitation: installation_id itself is not proven to belong to that GitHub user.
    */
-  @Get('callback')
+  @Get('github/callback')
   async callback(
     @Query('installation_id') installationId: string,
     @Query('state') state: string | undefined,
@@ -28,6 +56,6 @@ export class GithubController {
     const userId = this.github.userIdFromState(state);
     if (!userId || !/^\d+$/.test(installationId ?? '')) throw new BadRequestException('Invalid callback');
     await this.github.syncInstallation(Number(installationId), userId);
-    res.redirect(`${process.env.WEB_URL ?? 'http://localhost:3000'}/repos`);
+    res.redirect(`${webUrl()}/dashboard/repos`);
   }
 }

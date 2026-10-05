@@ -1,0 +1,7 @@
+{
+  "description": "async callback inside forEach is never awaited.",
+  "expected": [
+    { "file": "queue.ts", "lines": [12, 14], "category": "bug", "issue": "forEach does not await the async callback: saveAll returns before saves finish and errors are lost" }
+  ],
+  "acceptable_extra": ["race between concurrent increment() calls loading the same key"]
+}

@@ -25,9 +25,8 @@ const OVERLAP = 10;
 
 /**
  * Splits a file into chunks to embed.
- * Current implementation: fixed-size line windows with overlap (the documented fallback).
- * TODO(module 2): chunk by function/class with Tree-sitter and fill `symbol`; keep this as the
- * fallback for languages without a grammar. The return shape must not change.
+ * Fixed-size line windows with overlap: the fallback used by `chunkFileBySymbol` (symbols.ts) for
+ * languages without a Tree-sitter grammar, parse failures and very long functions.
  */
 export function chunkFile(path: string, content: string): Chunk[] {
   const language = languageOf(path);

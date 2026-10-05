@@ -1,3 +1,15 @@
+# Whole stack: `docker compose up --build`  ->  dashboard on http://localhost:3000
+# Settings come from .env (copy .env.example). Hostnames below override the localhost values in it.
+x-app-env: &app-env
+  env_file: [.env]
+  environment:
+    DATABASE_URL: postgres://postgres:postgres@postgres:5432/codereview
+    REDIS_URL: redis://redis:6379
+    API_PORT: "4000"
+    WEB_URL: ${WEB_URL:-http://localhost:3000}
+    SMEE_FILE: /data/smee-url
+  restart: unless-stopped
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -5,10 +17,78 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: codereview
-    ports: ["5432:5432"]
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d codereview"]
+      interval: 3s
+      retries: 20
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  migrate:
+    build: { context: ., target: migrate }
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/codereview
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    <<: *app-env
+    build: { context: ., target: api }
+    ports: ["${API_HOST_PORT:-4000}:4000"]
+    volumes: [smee:/data:ro]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker:
+    <<: *app-env
+    build: { context: ., target: worker }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+    env_file: [.env]
+    environment:
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+    ports: ["${WEB_HOST_PORT:-3000}:3000"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  mcp:
+    <<: *app-env
+    build: { context: ., target: mcp }
+    environment:
+      CODEREVIEW_API_URL: http://api:4000
+      MCP_PORT: "4100"
+    ports: ["${MCP_HOST_PORT:-4100}:4100"]
+    depends_on: [api]
+
+  # Creates a smee.io channel on first start and forwards GitHub webhooks to the API.
+  smee:
+    build: { context: ., target: smee }
+    environment:
+      SMEE_URL: ${SMEE_URL:-}
+      SMEE_TARGET: ${SMEE_TARGET:-http://api:4000/webhooks/github}
+    volumes: [smee:/data]
+    depends_on: [api]
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  smee:

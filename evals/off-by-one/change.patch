@@ -1,0 +1,18 @@
+diff --git a/paginate.ts b/paginate.ts
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/paginate.ts
+@@ -0,0 +1,12 @@
++export function paginate<T>(items: T[], page: number, size: number): T[] {
++  const start = page * size;
++  return items.slice(start, start + size + 1);
++}
++
++export function average(values: number[]): number {
++  let sum = 0;
++  for (let i = 0; i <= values.length; i++) {
++    sum += values[i];
++  }
++  return sum / values.length;
++}

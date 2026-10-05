@@ -3,13 +3,14 @@ import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { codeChunks, eq, installations, repoSettings, repositories } from '@codereview/db';
+import { and, codeChunks, eq, inArray, installations, repoSettings, repositories } from '@codereview/db';
 import type { IndexJobData } from '@codereview/shared';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
 import { getInstallationToken } from '../github.js';
 import { isIgnoredPath } from '../review/filter.js';
-import { chunkFile, languageOf } from './chunker.js';
+import { languageOf } from './chunker.js';
+import { chunkFileBySymbol } from './symbols.js';
 
 const exec = promisify(execFile);
 const MAX_FILE_BYTES = 200_000;
@@ -61,14 +62,29 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
       .where(eq(codeChunks.repoId, job.repoId));
     const known = new Map(existing.map((e) => [e.contentHash, e.embedding]));
 
+    // incremental (after a push): only the listed files; full: every file in the repo
+    const incremental = !!job.paths;
+    const candidates: string[] = [];
+    if (job.paths) {
+      for (const p of job.paths) candidates.push(join(dir, p));
+    } else {
+      for await (const full of walk(dir)) candidates.push(full);
+    }
+
     const rows: (typeof codeChunks.$inferInsert)[] = [];
-    for await (const full of walk(dir)) {
+    for (const full of candidates) {
       const path = relative(dir, full).split('\\').join('/');
-      if (!languageOf(path) || isIgnoredPath(path, settings?.ignoredPaths ?? [])) continue;
-      if ((await stat(full)).size > MAX_FILE_BYTES) continue;
+      if (path.startsWith('..') || !languageOf(path) || isIgnoredPath(path, settings?.ignoredPaths ?? [])) continue;
+      let size: number;
+      try {
+        size = (await stat(full)).size;
+      } catch {
+        continue; // deleted or renamed after the push event
+      }
+      if (size > MAX_FILE_BYTES) continue;
       const content = await readFile(full, 'utf8');
       if (content.includes('\u0000')) continue;
-      for (const c of chunkFile(path, content)) {
+      for (const c of await chunkFileBySymbol(path, content)) {
         rows.push({ ...c, repoId: job.repoId, filePath: path, commitSha: sha, embedding: known.get(c.contentHash) ?? null });
       }
     }
@@ -78,11 +94,18 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
     toEmbed.forEach((r, i) => (r.embedding = vectors[i]!));
 
     await db.transaction(async (tx) => {
-      await tx.delete(codeChunks).where(eq(codeChunks.repoId, job.repoId));
+      if (incremental) {
+        const touched = [...new Set([...(job.paths ?? []), ...(job.removed ?? [])])];
+        if (touched.length > 0) {
+          await tx.delete(codeChunks).where(and(eq(codeChunks.repoId, job.repoId), inArray(codeChunks.filePath, touched)));
+        }
+      } else {
+        await tx.delete(codeChunks).where(eq(codeChunks.repoId, job.repoId));
+      }
       for (let i = 0; i < rows.length; i += 200) await tx.insert(codeChunks).values(rows.slice(i, i + 200));
       await tx.update(repositories).set({ indexStatus: 'ready', lastIndexedSha: sha }).where(eq(repositories.id, job.repoId));
     });
-    log('index', 'completed', { repoId: job.repoId, chunks: rows.length, embedded: toEmbed.length });
+    log('index', 'completed', { repoId: job.repoId, mode: incremental ? 'incremental' : 'full', chunks: rows.length, embedded: toEmbed.length });
   } catch (err) {
     await db.update(repositories).set({ indexStatus: 'failed' }).where(eq(repositories.id, job.repoId));
     throw err;

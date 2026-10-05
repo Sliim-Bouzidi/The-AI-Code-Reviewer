@@ -17,6 +17,8 @@
     "@octokit/app": "^16.1.4",
     "bullmq": "^6.3.11",
     "ioredis": "^6.0.0",
-    "minimatch": "^10.2.6"
+    "minimatch": "^10.2.6",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "0.22.6"
   }
 }

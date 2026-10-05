@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation';
 import * as React from 'react';
 import PageContainer from '@/components/layout/page-container';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
+import { ReviewTimeline } from '@/components/review-timeline';
 import { ReviewStatusBadge, SEVERITY_ORDER, SeverityBadge } from '@/components/status';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -52,7 +53,7 @@ export default function ReviewPage() {
   const review = useQuery({
     queryKey: ['review', id],
     queryFn: () => api.review(id),
-    refetchInterval: (q) => (q.state.data && ['queued', 'running'].includes(q.state.data.status) ? 3_000 : false),
+    refetchInterval: (q) => (q.state.data && ['queued', 'running'].includes(q.state.data.status) ? 1_500 : false),
   });
   const repos = useQuery({ queryKey: ['repos'], queryFn: api.repos });
 
@@ -122,12 +123,7 @@ export default function ReviewPage() {
               <AlertDescription>{r!.error ?? 'The worker did not report a reason. Check the worker log.'}</AlertDescription>
             </Alert>
           )}
-          {(r!.status === 'queued' || r!.status === 'running') && (
-            <Alert>
-              <AlertTitle>Review in progress</AlertTitle>
-              <AlertDescription>This page updates by itself when the review finishes.</AlertDescription>
-            </Alert>
-          )}
+          <ReviewTimeline reviewId={r!.id} status={r!.status} />
           {r!.summary && (
             <Card>
               <CardHeader>

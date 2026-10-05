@@ -1,0 +1,17 @@
+diff --git a/auth.ts b/auth.ts
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/auth.ts
+@@ -0,0 +1,11 @@
++import crypto from 'node:crypto';
++
++const JWT_SECRET = 'super-secret-key-123';
++
++export function hashPassword(password: string): string {
++  return crypto.createHash('md5').update(password).digest('hex');
++}
++
++export function sign(userId: string): string {
++  return Buffer.from(`${userId}.${JWT_SECRET}`).toString('base64');
++}

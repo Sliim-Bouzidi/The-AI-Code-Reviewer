@@ -1,0 +1,8 @@
+{
+  "description": "Hardcoded secret and a broken password hash.",
+  "expected": [
+    { "file": "auth.ts", "lines": [3, 3], "category": "security", "issue": "Hardcoded secret committed to source" },
+    { "file": "auth.ts", "lines": [6, 6], "category": "security", "issue": "MD5 is not a password hash (use bcrypt/argon2/scrypt)" }
+  ],
+  "acceptable_extra": ["sign() is base64, not a real signed token"]
+}
