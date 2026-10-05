@@ -1,7 +1,7 @@
 'use client';
 
 import type {
-  LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
+  EvalRun, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
   UpdateLlmSettings, UpdateRepoSettings,
 } from '@codereview/shared';
 import * as React from 'react';
@@ -43,7 +43,7 @@ export interface ModelInfo {
 
 export interface AppNotification {
   id: string;
-  kind: 'review_completed' | 'review_failed' | 'index_ready' | 'index_failed';
+  kind: 'review_completed' | 'review_failed' | 'index_ready' | 'index_failed' | 'eval_completed' | 'eval_failed';
   title: string;
   body: string | null;
   link: string | null;
@@ -112,6 +112,8 @@ export function useApi() {
       readAllNotifications: () => request<void>('POST', '/api/notifications/read-all'),
       llmSettings: () => request<LlmSettingsResponse>('GET', '/api/settings/llm'),
       updateLlmSettings: (body: UpdateLlmSettings) => request<LlmSettingsResponse>('PUT', '/api/settings/llm', body),
+      evals: () => request<EvalRun[]>('GET', '/api/evals'),
+      startEval: () => request<EvalRun>('POST', '/api/evals'),
       llmModels: (provider: string, kind: 'chat' | 'embedding' = 'chat') =>
         request<{ models: ModelInfo[] }>('GET', `/api/settings/llm/models?provider=${provider}&kind=${kind}`),
       testLlm: (slot: 'primary' | 'fallback' | 'embeddings') =>

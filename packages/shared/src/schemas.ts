@@ -6,7 +6,7 @@ export const CategorySchema = z.enum(['bug', 'security', 'performance', 'style',
 export const FindingSourceSchema = z.enum(['llm', 'semgrep']);
 export const StrictnessSchema = z.enum(['low', 'medium', 'high']);
 export const ReviewStatusSchema = z.enum(['queued', 'running', 'completed', 'failed']);
-export const ReviewTriggerSchema = z.enum(['webhook', 'mcp']);
+export const ReviewTriggerSchema = z.enum(['webhook', 'mcp', 'eval']); // eval = internal review of an eval case
 export const IndexStatusSchema = z.enum(['none', 'indexing', 'ready', 'failed']);
 
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -229,6 +229,41 @@ export interface TestLlmResponse {
   provider: string | null;
   model: string | null;
   message: string;
+}
+
+// ---------- quality evals ----------
+export type EvalRunStatus = 'queued' | 'running' | 'completed' | 'failed';
+export interface EvalCaseResult {
+  caseName: string;
+  description: string | null;
+  expected: number; // planted issues in the answer key
+  caught: number; // planted issues the reviewer found
+  findings: number; // everything the reviewer reported
+  onTarget: number; // findings that hit a planted issue
+  falseAlarms: number; // on the clean case: findings above the allowed severity
+  missed: string[]; // planted issues it did not find
+  reviewId: string | null;
+  durationMs: number | null;
+  error: string | null;
+}
+export interface EvalRun {
+  id: string;
+  status: EvalRunStatus;
+  provider: string | null;
+  model: string | null;
+  casesTotal: number | null;
+  casesDone: number;
+  expected: number;
+  caught: number;
+  findings: number;
+  onTarget: number;
+  falseAlarms: number;
+  recall: number | null; // caught / expected, 0..1
+  precision: number | null; // onTarget / findings, 0..1
+  durationMs: number | null;
+  error: string | null;
+  createdAt: string;
+  cases: EvalCaseResult[];
 }
 
 // ---------- API keys ----------

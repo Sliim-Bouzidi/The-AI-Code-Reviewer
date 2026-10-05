@@ -3,6 +3,13 @@ export interface ReviewJobData {
   reviewId: string;
   /** Raw diff, only for MCP-triggered reviews. Webhook reviews fetch the diff from GitHub. */
   diff?: string;
+  /** Internal reviews (eval runs): no notification, no GitHub posting. */
+  silent?: boolean;
+}
+
+/** Payload of a job on the `eval` queue: run every case in evals/ and score it. */
+export interface EvalJobData {
+  runId: string;
 }
 
 /** Payload of a job on the `index-repo` queue. */
