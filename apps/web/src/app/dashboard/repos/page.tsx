@@ -94,6 +94,14 @@ export default function ReposPage() {
                     <TableCell className='text-muted-foreground font-mono text-xs'>{repo.defaultBranch ?? '-'}</TableCell>
                     <TableCell>
                       <IndexStatusBadge status={repo.indexStatus} />
+                      {repo.indexProgress && repo.indexStatus !== 'none' && (
+                        <div
+                          title={repo.indexProgress}
+                          className={`mt-1 max-w-[16rem] truncate text-xs ${repo.indexStatus === 'failed' ? 'text-red-500' : 'text-muted-foreground'}`}
+                        >
+                          {repo.indexProgress}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <label className='flex w-fit items-center gap-2 text-sm'>

@@ -46,9 +46,10 @@ export class ReposController {
   @Post(':id/index')
   async index(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const repo = await this.repos.get(user.id, id);
-    await this.db.update(repositories).set({ indexStatus: 'indexing' }).where(eq(repositories.id, repo.id));
+    const indexProgress = 'Waiting for the worker';
+    await this.db.update(repositories).set({ indexStatus: 'indexing', indexProgress }).where(eq(repositories.id, repo.id));
     await this.indexQueue.add('index', { repoId: repo.id }, DEFAULT_JOB_OPTIONS);
-    return { ...repo, indexStatus: 'indexing' as const };
+    return { ...repo, indexStatus: 'indexing' as const, indexProgress };
   }
 
   @Get(':id/settings')

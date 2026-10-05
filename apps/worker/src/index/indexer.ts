@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { and, codeChunks, eq, inArray, installations, repoSettings, repositories } from '@codereview/db';
+import { and, codeChunks, eq, inArray, installations, notInArray, repoSettings, repositories } from '@codereview/db';
 import type { IndexJobData } from '@codereview/shared';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
@@ -41,7 +41,11 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
     throw new Error('embeddings are not configured (GEMINI_API_KEY / EMBEDDING_MODEL)');
   }
 
-  await db.update(repositories).set({ indexStatus: 'indexing' }).where(eq(repositories.id, job.repoId));
+  // shown under the status badge on the Repositories page
+  const progress = (text: string | null) =>
+    db.update(repositories).set({ indexProgress: text }).where(eq(repositories.id, job.repoId));
+
+  await db.update(repositories).set({ indexStatus: 'indexing', indexProgress: 'Cloning the repository' }).where(eq(repositories.id, job.repoId));
   const dir = await mkdtemp(join(tmpdir(), 'codereview-index-'));
   try {
     const [settings] = await db.select().from(repoSettings).where(eq(repoSettings.repoId, job.repoId));
@@ -54,6 +58,7 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
       { timeout: 300_000 },
     );
     const sha = (await exec('git', ['-C', dir, 'rev-parse', 'HEAD'])).stdout.trim();
+    await progress('Splitting files into functions and classes');
 
     // reuse embeddings of unchanged chunks
     const existing = await db
@@ -89,25 +94,52 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
       }
     }
 
+    // Embed in slices and save each slice straight away. Embeddings cost free-tier quota (1,000 a day),
+    // so if a run fails halfway, the next run finds these by content hash and does not pay for them again.
     const toEmbed = rows.filter((r) => !r.embedding);
-    const vectors = await embedder.embed(toEmbed.map((r) => `${r.filePath}\n${r.content}`), 'document');
-    toEmbed.forEach((r, i) => (r.embedding = vectors[i]!));
+    const reused = rows.length - toEmbed.length;
+    const keep: string[] = []; // ids of this run's chunks; everything else of the repo is stale at the end
+    const SLICE = 20;
+    for (let i = 0; i < toEmbed.length; i += SLICE) {
+      await progress(`Embedding ${i}/${toEmbed.length} chunks${reused > 0 ? ` (${reused} reused)` : ''}`);
+      const slice = toEmbed.slice(i, i + SLICE);
+      const vectors = await embedder.embed(slice.map((r) => `${r.filePath}\n${r.content}`), 'document');
+      slice.forEach((r, j) => (r.embedding = vectors[j]!));
+      const saved = await db.insert(codeChunks).values(slice).returning({ id: codeChunks.id });
+      keep.push(...saved.map((s) => s.id));
+      if ((i / SLICE) % 5 === 0) log('index', 'embedding', { repoId: job.repoId, done: i + slice.length, total: toEmbed.length });
+    }
+    await progress('Saving to the database');
 
     await db.transaction(async (tx) => {
-      if (incremental) {
-        const touched = [...new Set([...(job.paths ?? []), ...(job.removed ?? [])])];
-        if (touched.length > 0) {
-          await tx.delete(codeChunks).where(and(eq(codeChunks.repoId, job.repoId), inArray(codeChunks.filePath, touched)));
-        }
-      } else {
-        await tx.delete(codeChunks).where(eq(codeChunks.repoId, job.repoId));
+      // chunks whose embedding was reused get a fresh row for this commit
+      const reusedRows = rows.filter((r) => !toEmbed.includes(r));
+      for (let i = 0; i < reusedRows.length; i += 200) {
+        const saved = await tx.insert(codeChunks).values(reusedRows.slice(i, i + 200)).returning({ id: codeChunks.id });
+        keep.push(...saved.map((s) => s.id));
       }
-      for (let i = 0; i < rows.length; i += 200) await tx.insert(codeChunks).values(rows.slice(i, i + 200));
-      await tx.update(repositories).set({ indexStatus: 'ready', lastIndexedSha: sha }).where(eq(repositories.id, job.repoId));
+      // drop the previous rows: all of the repo (full) or only the touched files (incremental)
+      const scope = incremental
+        ? inArray(codeChunks.filePath, [...new Set([...(job.paths ?? []), ...(job.removed ?? [])])])
+        : undefined;
+      const notKept = keep.length > 0 ? notInArray(codeChunks.id, keep) : undefined;
+      if (!incremental || (job.paths?.length ?? 0) + (job.removed?.length ?? 0) > 0) {
+        await tx.delete(codeChunks).where(and(eq(codeChunks.repoId, job.repoId), scope, notKept));
+      }
+      await tx
+        .update(repositories)
+        .set({ indexStatus: 'ready', lastIndexedSha: sha, indexProgress: `${rows.length} chunks indexed` })
+        .where(eq(repositories.id, job.repoId));
     });
     log('index', 'completed', { repoId: job.repoId, mode: incremental ? 'incremental' : 'full', chunks: rows.length, embedded: toEmbed.length });
   } catch (err) {
-    await db.update(repositories).set({ indexStatus: 'failed' }).where(eq(repositories.id, job.repoId));
+    const message = (err as Error).message;
+    const reason = /daily free-tier/.test(message)
+      ? 'Gemini daily embedding quota (1,000/day) used up. Chunks done so far are saved; click Index again tomorrow to finish.'
+      : / 429 /.test(message)
+        ? 'Gemini rate limit (HTTP 429). Try again in a few minutes.'
+        : message.slice(0, 160);
+    await db.update(repositories).set({ indexStatus: 'failed', indexProgress: reason }).where(eq(repositories.id, job.repoId));
     throw err;
   } finally {
     await rm(dir, { recursive: true, force: true });

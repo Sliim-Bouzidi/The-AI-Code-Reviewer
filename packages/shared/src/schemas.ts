@@ -89,6 +89,8 @@ export const RepoSchema = z.object({
   enabled: z.boolean(),
   indexStatus: IndexStatusSchema,
   lastIndexedSha: z.string().nullable(),
+  /** Progress text while indexing ("Embedding 120/620 chunks"), or why the last index failed. */
+  indexProgress: z.string().nullable(),
 });
 export type Repo = z.infer<typeof RepoSchema>;
 

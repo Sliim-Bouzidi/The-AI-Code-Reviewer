@@ -44,7 +44,10 @@ export async function httpJson(url: string, init: RequestInit, label: string): P
     throw new LlmError(`${label}: network error (${(err as Error).message})`, undefined, true);
   }
   if (!res.ok) {
-    const body = (await res.text()).slice(0, 300);
+    const full = await res.text();
+    // keep the provider's suggested wait (it sits at the end of long 429 bodies) after truncating
+    const delay = /"retryDelay"\s*:\s*"[\d.]+s"/.exec(full)?.[0];
+    const body = full.slice(0, 300) + (delay && !full.slice(0, 300).includes(delay) ? ` ${delay}` : '');
     throw new LlmError(`${label}: HTTP ${res.status} ${body}`, res.status, res.status === 429 || res.status >= 500);
   }
   return res.json();

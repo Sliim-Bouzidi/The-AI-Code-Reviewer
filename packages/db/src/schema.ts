@@ -36,6 +36,8 @@ export const repositories = pgTable('repositories', {
   enabled: boolean('enabled').notNull().default(false),
   indexStatus: text('index_status').$type<IndexStatus>().notNull().default('none'),
   lastIndexedSha: text('last_indexed_sha'),
+  // human-readable progress while indexing ("Embedding 120/620"), or the reason it failed
+  indexProgress: text('index_progress'),
 });
 
 export const repoSettings = pgTable('repo_settings', {
