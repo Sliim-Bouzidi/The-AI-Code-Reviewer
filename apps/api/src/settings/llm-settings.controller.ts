@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Inject, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   clearLlmSettingsCache, getLlmEnv, getLlmSettingsRow, LLM_SETTING_ENV, llmSettings,
 } from '@codereview/db';
 import type { Db, LlmSettingField } from '@codereview/db';
-import { createEmbedderFromEnv, resolveProviders } from '@codereview/llm';
-import type { LlmProvider } from '@codereview/llm';
-import { TestLlmBodySchema, UpdateLlmSettingsSchema } from '@codereview/shared';
+import { createEmbedderFromEnv, listModels, resolveProviders } from '@codereview/llm';
+import type { LlmProvider, ModelInfo } from '@codereview/llm';
+import { LlmProviderNameSchema, TestLlmBodySchema, UpdateLlmSettingsSchema } from '@codereview/shared';
 import type {
   LlmKeyStatus, LlmSettingsResponse, LlmSlotStatus, TestLlmResponse, UpdateLlmSettings,
 } from '@codereview/shared';
@@ -80,6 +80,22 @@ export class LlmSettingsController {
       clearLlmSettingsCache();
     }
     return this.get();
+  }
+
+  /** Models a provider offers for the saved key, for the model pickers. Never returns the key. */
+  @Get('models')
+  async models(
+    @Query('provider') provider: string | undefined,
+    @Query('kind') kind: string | undefined,
+  ): Promise<{ models: ModelInfo[] }> {
+    const name = LlmProviderNameSchema.safeParse(provider);
+    if (!name.success) throw new BadRequestException('provider must be gemini, openrouter or openai');
+    const env = await getLlmEnv(this.db);
+    try {
+      return { models: await listModels(env, name.data, kind === 'embedding' ? 'embedding' : 'chat') };
+    } catch (err) {
+      throw new BadRequestException(short(err));
+    }
   }
 
   /** Makes one tiny real call with the current settings, so a wrong key shows up right away. */

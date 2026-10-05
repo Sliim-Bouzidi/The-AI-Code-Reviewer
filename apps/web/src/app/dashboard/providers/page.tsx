@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ModelCombobox } from '@/components/model-combobox';
 import { Select } from '@/components/ui/select';
 import type { SelectOption } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -28,7 +29,7 @@ const PROVIDER_OPTIONS: SelectOption[] = [
 /** Ready-made settings for popular OpenAI-compatible free tiers (see freellm.net). */
 const PRESETS = [
   { name: 'NVIDIA NIM', baseUrl: 'https://integrate.api.nvidia.com/v1', model: 'z-ai/glm-5.3', keyUrl: 'https://build.nvidia.com/settings/api-keys' },
-  { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', keyUrl: 'https://console.groq.com/keys' },
+  { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', keyUrl: 'https://console.groq.com/keys' },
   { name: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1', model: 'zai-glm-4.7', keyUrl: 'https://cloud.cerebras.ai/' },
 ];
 
@@ -92,17 +93,28 @@ function ActiveRow({ title, hint, slot, status }: { title: string; hint: string;
 
 /** Paste a key; it is sent once and never shown again. */
 function KeyField({
-  id, label, status, field, save, saving, help,
+  id, label, status, field, provider, save, saving, help,
 }: {
   id: string;
   label: string;
   status: LlmKeyStatus;
   field: 'geminiApiKey' | 'openrouterApiKey' | 'openaiCompatApiKey';
+  provider: 'gemini' | 'openrouter' | 'openai';
   save: (body: UpdateLlmSettings) => void;
   saving: boolean;
   help: React.ReactNode;
 }) {
+  const api = useApi();
   const [value, setValue] = React.useState('');
+  // Testing a key = asking the provider for its model list: proves the key is accepted and costs
+  // no AI quota. Works before the provider is given a role (main / fallback).
+  const [result, setResult] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const test = useMutation({
+    mutationFn: () => api.llmModels(provider),
+    onSuccess: (r) => setResult({ ok: true, text: `Key works: ${r.models.length} models available.` }),
+    onError: (err) => setResult({ ok: false, text: errorMessage(err) }),
+  });
+  React.useEffect(() => setResult(null), [status.last4]);
   return (
     <div className='flex flex-col gap-2'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
@@ -130,18 +142,32 @@ function KeyField({
         <Button type='submit' disabled={!value.trim() || saving}>
           Save
         </Button>
+        {status.set && (
+          <Button type='button' variant='outline' disabled={test.isPending} onClick={() => test.mutate()} title='Check that the provider accepts this key'>
+            {test.isPending ? <Spinner className='size-3' /> : <IconPlugConnected />}
+            Test
+          </Button>
+        )}
         {status.source === 'dashboard' && (
           <Button type='button' variant='outline' disabled={saving} onClick={() => save({ [field]: '' })} title='Remove the key saved here (the .env one, if any, applies again)'>
             Remove
           </Button>
         )}
       </form>
+      {result && (
+        <p className={`flex items-start gap-1 text-xs ${result.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+          {result.ok ? <IconCheck className='size-4 shrink-0' /> : <IconX className='size-4 shrink-0' />}
+          <span>{result.text}</span>
+        </p>
+      )}
       <p className='text-muted-foreground text-xs'>{help}</p>
     </div>
   );
 }
 
 function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: (b: UpdateLlmSettings) => void; saving: boolean }) {
+  // refetch model lists when a key or the base URL changes
+  const refreshKey = [data.keys.gemini.last4, data.keys.openrouter.last4, data.keys.openai.last4, data.keys.openai.baseUrl].join('|');
   const [form, setForm] = React.useState(() => ({
     llmProvider: data.choice.llmProvider ?? 'gemini',
     llmModel: data.choice.llmModel ?? '',
@@ -149,9 +175,12 @@ function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: 
     llmFallbackModel: data.choice.llmFallbackModel ?? '',
     embeddingModel: data.choice.embeddingModel ?? '',
   }));
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
   const pick = (k: keyof typeof form) => (value: string) => setForm((f) => ({ ...f, [k]: value }));
+  // switching provider clears the model: a Gemini model name means nothing to Groq
+  const pickProvider = (k: 'llmProvider' | 'llmFallbackProvider', model: 'llmModel' | 'llmFallbackModel') => (value: string) =>
+    setForm((f) => (f[k] === value ? f : { ...f, [k]: value, [model]: '' }));
+  // "Default" fallback = the other of gemini/openrouter, like the worker
+  const fallbackProvider = form.llmFallbackProvider || (form.llmProvider === 'gemini' ? 'openrouter' : 'gemini');
   return (
     <form
       className='grid gap-4 md:grid-cols-2'
@@ -162,26 +191,26 @@ function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: 
     >
       <div className='flex flex-col gap-2'>
         <Label htmlFor='primary-provider'>Main reviewer</Label>
-        <div className='flex gap-2'>
-          <Select id='primary-provider' value={form.llmProvider} onValueChange={pick('llmProvider')} options={PROVIDER_OPTIONS} />
-          <Input aria-label='Main model' placeholder='model, e.g. gemini-3.5-flash' value={form.llmModel} onChange={set('llmModel')} className='font-mono text-xs' />
+        <div className='flex items-start gap-2'>
+          <Select id='primary-provider' value={form.llmProvider} onValueChange={pickProvider('llmProvider', 'llmModel')} options={PROVIDER_OPTIONS} />
+          <ModelCombobox aria-label='Main model' provider={form.llmProvider} value={form.llmModel} onChange={pick('llmModel')} refreshKey={refreshKey} />
         </div>
       </div>
       <div className='flex flex-col gap-2'>
         <Label htmlFor='fallback-provider'>Fallback (used when the main one fails)</Label>
-        <div className='flex gap-2'>
+        <div className='flex items-start gap-2'>
           <Select
             id='fallback-provider'
             value={form.llmFallbackProvider}
-            onValueChange={pick('llmFallbackProvider')}
+            onValueChange={pickProvider('llmFallbackProvider', 'llmFallbackModel')}
             options={[{ value: '', label: 'Default', hint: 'The other of Gemini / OpenRouter' }, ...PROVIDER_OPTIONS]}
           />
-          <Input aria-label='Fallback model' placeholder='model, e.g. z-ai/glm-5.3' value={form.llmFallbackModel} onChange={set('llmFallbackModel')} className='font-mono text-xs' />
+          <ModelCombobox aria-label='Fallback model' provider={fallbackProvider} value={form.llmFallbackModel} onChange={pick('llmFallbackModel')} refreshKey={refreshKey} />
         </div>
       </div>
       <div className='flex flex-col gap-2'>
         <Label htmlFor='embedding-model'>Indexing model (Gemini embeddings)</Label>
-        <Input id='embedding-model' placeholder='gemini-embedding-001' value={form.embeddingModel} onChange={set('embeddingModel')} className='font-mono text-xs' />
+        <ModelCombobox id='embedding-model' provider='gemini' kind='embedding' value={form.embeddingModel} onChange={pick('embeddingModel')} refreshKey={refreshKey} />
       </div>
       <div className='flex items-end justify-end'>
         <Button type='submit' disabled={saving}>Save models</Button>
@@ -242,6 +271,7 @@ export default function ProvidersPage() {
                 id='gemini-key'
                 label='Google Gemini'
                 field='geminiApiKey'
+                provider='gemini'
                 status={d!.keys.gemini}
                 save={save}
                 saving={update.isPending}
@@ -259,6 +289,7 @@ export default function ProvidersPage() {
                 id='openrouter-key'
                 label='OpenRouter'
                 field='openrouterApiKey'
+                provider='openrouter'
                 status={d!.keys.openrouter}
                 save={save}
                 saving={update.isPending}
@@ -286,7 +317,17 @@ export default function ProvidersPage() {
                 <div className='flex flex-wrap gap-2'>
                   {PRESETS.map((p) => (
                     <div key={p.name} className='flex items-center gap-1'>
-                      <Button type='button' variant={currentBaseUrl === p.baseUrl ? 'default' : 'outline'} size='sm' onClick={() => setBaseUrl(p.baseUrl)}>
+                      <Button
+                        type='button'
+                        variant={d!.keys.openai.baseUrl === p.baseUrl ? 'default' : 'outline'}
+                        size='sm'
+                        disabled={update.isPending}
+                        onClick={() => {
+                          // a preset is saved right away: filling the box without saving was easy to miss
+                          setBaseUrl(p.baseUrl);
+                          save({ openaiCompatBaseUrl: p.baseUrl });
+                        }}
+                      >
                         {p.name}
                       </Button>
                       <a href={p.keyUrl} target='_blank' rel='noreferrer' className='text-muted-foreground hover:text-foreground' title={`Get a ${p.name} key`} aria-label={`Get a ${p.name} key`}>
@@ -315,16 +356,19 @@ export default function ProvidersPage() {
                       Save
                     </Button>
                   </div>
-                  {PRESETS.find((p) => p.baseUrl === currentBaseUrl) && (
+                  {currentBaseUrl !== (d!.keys.openai.baseUrl ?? '') ? (
+                    <p className='text-xs text-amber-600 dark:text-amber-400'>Not saved yet: click Save to use this URL.</p>
+                  ) : d!.keys.openai.baseUrl ? (
                     <p className='text-muted-foreground text-xs'>
-                      Suggested model: <code className='font-mono'>{PRESETS.find((p) => p.baseUrl === currentBaseUrl)!.model}</code>
+                      Saved. After saving its key, pick a model from the list under “Which models to use”.
                     </p>
-                  )}
+                  ) : null}
                 </form>
                 <KeyField
                   id='compat-key'
                   label='API key'
                   field='openaiCompatApiKey'
+                  provider='openai'
                   status={d!.keys.openai}
                   save={save}
                   saving={update.isPending}

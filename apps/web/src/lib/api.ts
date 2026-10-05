@@ -35,6 +35,12 @@ export interface ReviewEvent {
   createdAt: string;
 }
 
+export interface ModelInfo {
+  id: string;
+  label?: string;
+  free?: boolean;
+}
+
 export interface AppNotification {
   id: string;
   kind: 'review_completed' | 'review_failed' | 'index_ready' | 'index_failed';
@@ -106,6 +112,8 @@ export function useApi() {
       readAllNotifications: () => request<void>('POST', '/api/notifications/read-all'),
       llmSettings: () => request<LlmSettingsResponse>('GET', '/api/settings/llm'),
       updateLlmSettings: (body: UpdateLlmSettings) => request<LlmSettingsResponse>('PUT', '/api/settings/llm', body),
+      llmModels: (provider: string, kind: 'chat' | 'embedding' = 'chat') =>
+        request<{ models: ModelInfo[] }>('GET', `/api/settings/llm/models?provider=${provider}&kind=${kind}`),
       testLlm: (slot: 'primary' | 'fallback' | 'embeddings') =>
         request<TestLlmResponse>('POST', '/api/settings/llm/test', { slot }),
       setupStatus: () => request<SetupStatus>('GET', '/api/setup/status'),
