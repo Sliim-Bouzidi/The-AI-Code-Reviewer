@@ -12,13 +12,18 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Select } from '@/components/ui/select';
+import type { SelectOption } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { errorMessage, useApi } from '@/lib/api';
 
 type Slot = 'primary' | 'fallback' | 'embeddings';
 
-const PROVIDER_LABEL: Record<string, string> = { gemini: 'Google Gemini', openrouter: 'OpenRouter', openai: 'OpenAI-compatible' };
+const PROVIDER_OPTIONS: SelectOption[] = [
+  { value: 'gemini', label: 'Google Gemini', hint: 'Free key, ~20 reviews/day' },
+  { value: 'openrouter', label: 'OpenRouter', hint: 'Free models end in :free' },
+  { value: 'openai', label: 'OpenAI-compatible', hint: 'NVIDIA NIM, Groq, Cerebras…' },
+];
 
 /** Ready-made settings for popular OpenAI-compatible free tiers (see freellm.net). */
 const PRESETS = [
@@ -144,8 +149,9 @@ function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: 
     llmFallbackModel: data.choice.llmFallbackModel ?? '',
     embeddingModel: data.choice.embeddingModel ?? '',
   }));
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+  const pick = (k: keyof typeof form) => (value: string) => setForm((f) => ({ ...f, [k]: value }));
   return (
     <form
       className='grid gap-4 md:grid-cols-2'
@@ -157,23 +163,19 @@ function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: 
       <div className='flex flex-col gap-2'>
         <Label htmlFor='primary-provider'>Main reviewer</Label>
         <div className='flex gap-2'>
-          <NativeSelect id='primary-provider' value={form.llmProvider} onChange={set('llmProvider')}>
-            {Object.entries(PROVIDER_LABEL).map(([v, l]) => (
-              <NativeSelectOption key={v} value={v}>{l}</NativeSelectOption>
-            ))}
-          </NativeSelect>
+          <Select id='primary-provider' value={form.llmProvider} onValueChange={pick('llmProvider')} options={PROVIDER_OPTIONS} />
           <Input aria-label='Main model' placeholder='model, e.g. gemini-3.5-flash' value={form.llmModel} onChange={set('llmModel')} className='font-mono text-xs' />
         </div>
       </div>
       <div className='flex flex-col gap-2'>
         <Label htmlFor='fallback-provider'>Fallback (used when the main one fails)</Label>
         <div className='flex gap-2'>
-          <NativeSelect id='fallback-provider' value={form.llmFallbackProvider} onChange={set('llmFallbackProvider')}>
-            <NativeSelectOption value=''>Default</NativeSelectOption>
-            {Object.entries(PROVIDER_LABEL).map(([v, l]) => (
-              <NativeSelectOption key={v} value={v}>{l}</NativeSelectOption>
-            ))}
-          </NativeSelect>
+          <Select
+            id='fallback-provider'
+            value={form.llmFallbackProvider}
+            onValueChange={pick('llmFallbackProvider')}
+            options={[{ value: '', label: 'Default', hint: 'The other of Gemini / OpenRouter' }, ...PROVIDER_OPTIONS]}
+          />
           <Input aria-label='Fallback model' placeholder='model, e.g. z-ai/glm-5.3' value={form.llmFallbackModel} onChange={set('llmFallbackModel')} className='font-mono text-xs' />
         </div>
       </div>

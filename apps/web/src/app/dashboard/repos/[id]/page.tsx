@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Select } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { errorMessage, useApi } from '@/lib/api';
@@ -115,16 +115,17 @@ function SettingsForm({ repoId, initial }: { repoId: string; initial: RepoSettin
           <div className='grid gap-6 sm:grid-cols-2'>
             <div className='flex flex-col gap-2'>
               <Label htmlFor='strictness'>Strictness</Label>
-              <NativeSelect
+              <Select
                 id='strictness'
                 className='w-full'
                 value={strictness}
-                onChange={(e) => setStrictness(e.target.value as Strictness)}
-              >
-                <NativeSelectOption value='low'>Low: only serious problems</NativeSelectOption>
-                <NativeSelectOption value='medium'>Medium: bugs and risky code</NativeSelectOption>
-                <NativeSelectOption value='high'>High: include minor issues</NativeSelectOption>
-              </NativeSelect>
+                onValueChange={(v) => setStrictness(v as Strictness)}
+                options={[
+                  { value: 'low', label: 'Low', hint: 'Only serious problems' },
+                  { value: 'medium', label: 'Medium', hint: 'Bugs and risky code' },
+                  { value: 'high', label: 'High', hint: 'Also minor issues' },
+                ]}
+              />
             </div>
             <div className='flex flex-col gap-2'>
               <Label htmlFor='max-comments'>Maximum comments per pull request</Label>
@@ -170,20 +171,13 @@ function SettingsForm({ repoId, initial }: { repoId: string; initial: RepoSettin
                   value={rule.rule}
                   onChange={(e) => setRules(rules.map((r, j) => (j === i ? { ...r, rule: e.target.value } : r)))}
                 />
-                <NativeSelect
-                  className='w-32 shrink-0'
+                <Select
+                  className='w-32 min-w-32'
                   aria-label={`Severity of rule ${i + 1}`}
                   value={rule.severity}
-                  onChange={(e) =>
-                    setRules(rules.map((r, j) => (j === i ? { ...r, severity: e.target.value as Severity } : r)))
-                  }
-                >
-                  {SEVERITY_ORDER.map((s) => (
-                    <NativeSelectOption key={s} value={s}>
-                      {s}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
+                  onValueChange={(v) => setRules(rules.map((r, j) => (j === i ? { ...r, severity: v as Severity } : r)))}
+                  options={SEVERITY_ORDER.map((s) => ({ value: s, label: <span className='capitalize'>{s}</span> }))}
+                />
                 <Button
                   type='button'
                   variant='ghost'
