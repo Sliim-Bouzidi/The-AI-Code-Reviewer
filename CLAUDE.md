@@ -538,7 +538,7 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - `reviews.user_id` was added: who requested an MCP review (those have no repo/PR to check ownership on).
 - `installations.user_id` is null until the Connect GitHub callback runs (the webhook can arrive first).
 - Extra route `GET /api/findings/:id` (for the MCP `explain_finding` tool).
-- Extra env vars: `GITHUB_APP_SLUG`, `WEB_URL`, `AUTH_DEV_BYPASS`, `LLM_FALLBACK_MODEL`, `LLM_MIN_INTERVAL_MS`, `SEMGREP_CONFIG`, `MCP_PORT`.
+- Extra env vars: `GITHUB_APP_SLUG`, `WEB_URL`, `LLM_FALLBACK_MODEL`, `LLM_MIN_INTERVAL_MS`, `SEMGREP_CONFIG`, `MCP_PORT`.
 - The index queue is named `index-repo` (BullMQ queue names), the job is still "index_repo" conceptually.
 - LLM providers are called over HTTP directly instead of through their SDKs.
 - Besides Gemini and OpenRouter, `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` accept `openai`: any OpenAI-compatible endpoint (`OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`), e.g. NVIDIA NIM or Groq, whose free tiers are far larger than Gemini's ~20 review calls/day. Embeddings still use Gemini only.
@@ -553,6 +553,6 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 ### Verified on 2026-10-04 (later)
 - Real PR review end to end on `Sliim-Bouzidi/Nexora` PR #1: GitHub App install -> webhook via smee -> worker -> 8 inline comments posted (all 4 planted issues found). Semgrep skipped (not installed).
 - `apps/web` dashboard exists: overview, repositories (enable/index), repo reviews + settings, review detail, API keys. UI components copied from `next-shadcn-dashboard-starter` (shadcn base-nova, Base UI, Tabler icons).
-- Dashboard was exercised in a browser against the real API in dev-bypass mode. Clerk keys were added afterwards and sign-in works; `AUTH_DEV_BYPASS` must be `false` for the API to require a Clerk session.
+- Dashboard was first exercised in a browser in a since-removed dev-bypass mode. Clerk sign-in is now **mandatory**: there is no anonymous / "dev user" mode. Without the Clerk keys the dashboard redirects to `/sign-in`, which shows setup steps, and the API accepts only MCP API keys. `AUTH_DEV_BYPASS` no longer exists.
 - `apps/web` reads the root `.env` (see `next.config.ts`). `start.bat` starts database, webhook forwarder and `pnpm dev` (output in `dev.log`).
-- Known gap: repos connected while in dev-bypass mode belong to the `dev-user`; after enabling Clerk the signed-in user must reconnect GitHub to see them.
+- Repos connected during the old dev-bypass mode belong to a `dev-user` row; the signed-in user must reconnect GitHub to see them.

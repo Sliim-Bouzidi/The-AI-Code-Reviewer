@@ -64,7 +64,7 @@ export class ApiError extends Error {
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 0) return `Cannot reach the API at ${API_URL}. Is "pnpm dev" running?`;
-    if (err.status === 401) return 'Not authorized. Sign in, or set AUTH_DEV_BYPASS=true in .env for local testing.';
+    if (err.status === 401) return 'Not authorized. Your session may have expired: sign in again.';
     return err.message;
   }
   return err instanceof Error ? err.message : 'Something went wrong';

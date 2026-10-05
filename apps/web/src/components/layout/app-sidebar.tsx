@@ -11,7 +11,6 @@ import {
   IconSettings,
   IconSparkles,
   IconUser,
-  IconUserCode,
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -20,7 +19,6 @@ import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu,
   SidebarMenuButton, SidebarMenuItem, SidebarRail,
 } from '@/components/ui/sidebar';
-import { CLERK_ENABLED } from '@/lib/auth';
 
 const NAV = [
   { title: 'Overview', url: '/dashboard', icon: IconLayoutDashboard, exact: true },
@@ -128,20 +126,6 @@ function UserDropdown() {
   );
 }
 
-function DevUser() {
-  return (
-    <div className='flex items-center gap-2 px-2 py-1.5'>
-      <div className='bg-muted flex size-8 shrink-0 items-center justify-center rounded-full'>
-        <IconUserCode className='size-4' />
-      </div>
-      <div className='grid min-w-0 text-sm leading-tight group-data-[collapsible=icon]:hidden'>
-        <span className='truncate font-medium'>Local dev user</span>
-        <span className='text-muted-foreground truncate text-xs'>Sign-in is off</span>
-      </div>
-    </div>
-  );
-}
-
 export default function AppSidebar() {
   const pathname = usePathname();
   return (
@@ -185,7 +169,9 @@ export default function AppSidebar() {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>{CLERK_ENABLED ? <UserDropdown /> : <DevUser />}</SidebarFooter>
+      <SidebarFooter>
+        <UserDropdown />
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
