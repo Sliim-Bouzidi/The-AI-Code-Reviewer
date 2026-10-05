@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
-import { and, count, desc, eq, findings, installations, pullRequests, repositories, reviews } from '@codereview/db';
+import {
+  and, asc, count, desc, eq, findings, installations, pullRequests, repositories, reviewEvents, reviews,
+} from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { DEFAULT_JOB_OPTIONS, PaginationQuerySchema, QUEUES, ReviewDiffBodySchema } from '@codereview/shared';
 import type { ReviewDiffBody, ReviewJobData, ReviewStatusResponse, Stats } from '@codereview/shared';
@@ -116,6 +118,18 @@ export class ReviewsController {
   async status(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<ReviewStatusResponse> {
     const review = await this.load(user.id, id);
     return { status: review.status, error: review.error };
+  }
+
+  /** Pipeline timeline (fetch, static analysis, LLM, ...) for the live view. Poll while the review runs. */
+  @Get('reviews/:id/events')
+  async events(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const review = await this.load(user.id, id);
+    const items = await this.db
+      .select()
+      .from(reviewEvents)
+      .where(eq(reviewEvents.reviewId, review.id))
+      .orderBy(asc(reviewEvents.createdAt));
+    return { status: review.status, items };
   }
 
   @Get('reviews/:id')

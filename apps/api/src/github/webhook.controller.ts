@@ -6,7 +6,7 @@ import type { Request } from 'express';
 import { eq, pullRequests, repositories, reviews, webhookDeliveries } from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { DEFAULT_JOB_OPTIONS, QUEUES } from '@codereview/shared';
-import type { ReviewJobData } from '@codereview/shared';
+import type { IndexJobData, ReviewJobData } from '@codereview/shared';
 import { DB } from '../common/db.module.js';
 import { GithubService } from './github.service.js';
 
@@ -18,6 +18,7 @@ export class WebhookController {
   constructor(
     @Inject(DB) private readonly db: Db,
     @InjectQueue(QUEUES.REVIEW) private readonly reviewQueue: Queue<ReviewJobData>,
+    @InjectQueue(QUEUES.INDEX) private readonly indexQueue: Queue<IndexJobData>,
     private readonly github: GithubService,
   ) {}
 
@@ -29,7 +30,7 @@ export class WebhookController {
     @Headers('x-github-delivery') deliveryId: string | undefined,
     @Headers('x-github-event') event: string | undefined,
   ) {
-    if (!this.github.verifySignature(req.rawBody, signature)) throw new UnauthorizedException('Bad signature');
+    if (!(await this.github.verifySignature(req.rawBody, signature))) throw new UnauthorizedException('Bad signature');
     if (!deliveryId || !event) return { ok: true, ignored: 'missing headers' };
 
     // idempotency: GitHub redelivers on timeouts
@@ -42,6 +43,7 @@ export class WebhookController {
 
     const payload = req.body as any;
     if (event === 'pull_request') return this.onPullRequest(payload);
+    if (event === 'push') return this.onPush(payload);
     if (event === 'installation' || event === 'installation_repositories') {
       if (event === 'installation' && payload.action === 'deleted') {
         await this.github.removeInstallation(payload.installation.id);
@@ -51,6 +53,33 @@ export class WebhookController {
       return { ok: true };
     }
     return { ok: true, ignored: event };
+  }
+
+  /** A push to the default branch of an already indexed repo: re-index only the files it touched. */
+  private async onPush(payload: any) {
+    const [repo] = await this.db.select().from(repositories).where(eq(repositories.githubRepoId, payload.repository.id));
+    if (!repo || !repo.enabled || repo.indexStatus !== 'ready') return { ok: true, ignored: 'repo not indexed' };
+    if (payload.ref !== `refs/heads/${repo.defaultBranch}` || payload.deleted) return { ok: true, ignored: 'not the default branch' };
+
+    const changed = new Set<string>();
+    const removed = new Set<string>();
+    for (const c of payload.commits ?? []) {
+      for (const p of [...(c.added ?? []), ...(c.modified ?? [])]) {
+        changed.add(p);
+        removed.delete(p);
+      }
+      for (const p of c.removed ?? []) {
+        removed.add(p);
+        changed.delete(p);
+      }
+    }
+    if (changed.size === 0 && removed.size === 0) return { ok: true, ignored: 'no file changes' };
+    await this.indexQueue.add(
+      'index',
+      { repoId: repo.id, paths: [...changed], removed: [...removed] },
+      { ...DEFAULT_JOB_OPTIONS, jobId: `index-${repo.id}-${payload.after}` },
+    );
+    return { ok: true, queued: 'incremental index', files: changed.size + removed.size };
   }
 
   private async onPullRequest(payload: any) {

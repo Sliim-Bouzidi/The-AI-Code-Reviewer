@@ -5,6 +5,7 @@ import { loadEnv, QUEUES, redisConnection } from '@codereview/shared';
 import type { IndexJobData, ReviewJobData } from '@codereview/shared';
 import { log } from './deps.js';
 import type { Deps } from './deps.js';
+import { initGithub } from './github.js';
 import { runIndex } from './index/indexer.js';
 import { runReview } from './review/pipeline.js';
 
@@ -15,6 +16,7 @@ const deps: Deps = {
   llm: createProvidersFromEnv(),
   embedder: createEmbedderFromEnv(),
 };
+initGithub(deps.db);
 if (deps.llm.length === 0) log('worker', 'WARNING: no LLM provider configured, reviews will fail');
 if (!deps.embedder) log('worker', 'WARNING: embeddings not configured, indexing/context disabled');
 

@@ -199,6 +199,12 @@ importers:
       minimatch:
         specifier: ^10.2.6
         version: 10.2.6
+      tree-sitter-wasms:
+        specifier: ^0.1.13
+        version: 0.1.13
+      web-tree-sitter:
+        specifier: 0.22.6
+        version: 0.22.6
 
   packages/db:
     dependencies:
@@ -2805,6 +2811,9 @@ packages:
     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
     hasBin: true
 
+  tree-sitter-wasms@0.1.13:
+    resolution: {integrity: sha512-wT+cR6DwaIz80/vho3AvSF0N4txuNx/5bcRKoXouOfClpxh/qqrF4URNLQXbbt8MaAxeksZcZd1j8gcGjc+QxQ==}
+
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
@@ -2957,6 +2966,9 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  web-tree-sitter@0.22.6:
+    resolution: {integrity: sha512-hS87TH71Zd6mGAmYCvlgxeGDjqd9GTeqXNqTT+u0Gs51uIozNIaaq/kUAbV/Zf56jb2ZOyG8BxZs2GG9wbLi6Q==}
 
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
@@ -5108,6 +5120,8 @@ snapshots:
 
   tree-kill@1.2.2: {}
 
+  tree-sitter-wasms@0.1.13: {}
+
   tslib@2.8.1: {}
 
   tsx@4.23.15:
@@ -5236,6 +5250,8 @@ snapshots:
       '@types/node': 26.6.4
     transitivePeerDependencies:
       - msw
+
+  web-tree-sitter@0.22.6: {}
 
   which@2.0.2:
     dependencies:

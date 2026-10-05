@@ -1,0 +1,21 @@
+diff --git a/queue.ts b/queue.ts
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/queue.ts
+@@ -0,0 +1,15 @@
++const cache = new Map<string, number>();
++
++export async function increment(key: string, load: (k: string) => Promise<number>) {
++  if (!cache.has(key)) {
++    cache.set(key, await load(key));
++  }
++  cache.set(key, cache.get(key)! + 1);
++  return cache.get(key);
++}
++
++export async function saveAll(items: string[], save: (s: string) => Promise<void>) {
++  items.forEach(async (item) => {
++    await save(item);
++  });
++}

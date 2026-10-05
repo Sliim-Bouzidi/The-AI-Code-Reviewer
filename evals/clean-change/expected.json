@@ -1,0 +1,5 @@
+{
+  "description": "Correct code. Any high-severity finding here is a false positive.",
+  "expected": [],
+  "max_severity_ok": "low"
+}

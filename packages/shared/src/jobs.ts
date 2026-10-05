@@ -8,6 +8,10 @@ export interface ReviewJobData {
 /** Payload of a job on the `index-repo` queue. */
 export interface IndexJobData {
   repoId: string;
+  /** Incremental re-index after a push: only these files are re-chunked and re-embedded. */
+  paths?: string[];
+  /** Incremental re-index: files deleted by the push, whose chunks are dropped. */
+  removed?: string[];
 }
 
 export const DEFAULT_JOB_OPTIONS = {

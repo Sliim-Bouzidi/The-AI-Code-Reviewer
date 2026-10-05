@@ -1,0 +1,13 @@
+diff --git a/format.ts b/format.ts
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/format.ts
+@@ -0,0 +1,7 @@
++export function formatPrice(cents: number, currency = 'USD'): string {
++  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
++}
++
++export function clamp(value: number, min: number, max: number): number {
++  return Math.min(Math.max(value, min), max);
++}

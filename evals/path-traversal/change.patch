@@ -1,0 +1,17 @@
+diff --git a/files.ts b/files.ts
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/files.ts
+@@ -0,0 +1,11 @@
++import { readFile } from 'node:fs/promises';
++import { join } from 'node:path';
++import express from 'express';
++
++const app = express();
++
++app.get('/download', async (req, res) => {
++  const file = String(req.query.name);
++  const data = await readFile(join('/srv/uploads', file));
++  res.send(data);
++});

@@ -519,11 +519,17 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - `apps/worker`: review pipeline steps 2 and 4-9, indexer (`index-repo` job).
 - `apps/mcp`: the 6 tools and 4 prompts, stdio and Streamable HTTP.
 
+### Added after the first demo
+- **Containers:** one root `Dockerfile` with a target per service (`api`, `worker`, `web`, `mcp`, `migrate`, `smee`); `docker-compose.yml` runs the whole stack (`docker compose up --build`), migrations run automatically, the worker image has git + Semgrep. Host ports are configurable (`WEB_HOST_PORT`, `API_HOST_PORT`, ...).
+- **One-click GitHub App:** the dashboard's "Create GitHub App" uses GitHub's manifest flow (`POST /api/setup/github-app`, `GET /api/github/manifest-callback`). Credentials are stored in the `github_app` table and read through `getGithubAppConfig` (packages/db); `GITHUB_APP_*` env vars are only a fallback. The `smee` container creates a webhook channel and writes it to a shared volume (`/data/smee-url`), which the manifest uses as the webhook URL (or `WEBHOOK_URL`/`SMEE_URL`).
+- **Agent visibility:** the worker adds an "eyes" reaction and an "AI Code Review" check run on the PR (best effort, needs the app's `checks: write` permission), and writes one `review_events` row per pipeline stage. `GET /api/reviews/:id/events` feeds the live timeline on the review page (polled every second while running; not SSE).
+- **Tree-sitter** (via WebAssembly: `web-tree-sitter` + `tree-sitter-wasms`, no native build): `apps/worker/src/index/symbols.ts`. Used for symbol-based chunking when indexing and for pipeline step 3 (changed functions and what they call; their definitions are pulled from the index as context). TypeScript/JS, Python, Go, Java, Ruby and Rust have grammars; other languages fall back to line windows.
+- **Incremental re-index:** a `push` webhook on the default branch of an indexed repo enqueues an `index-repo` job with `paths`/`removed`; only those files are re-chunked.
+- **Evals:** `evals/` has 6 cases (5 planted-bug diffs + a clean change); `pnpm eval` reports recall, precision and false alarms against the running API.
+- **CI:** `.github/workflows/ci.yml` (build, typecheck, test, docker build).
+
 ### Not built yet
-- `apps/web` (dashboard).
-- Tree-sitter: pipeline step 3 and symbol-based chunking. The indexer uses the fixed-window fallback (`apps/worker/src/index/chunker.ts`); "definitions of called symbols" context is not fetched.
-- Incremental re-index on push (a full re-index reuses embeddings by content hash, so only changed chunks are embedded).
-- `evals/`, Langfuse/Sentry, CI workflow.
+- Langfuse/Sentry.
 
 ### Deviations from the sections above
 - Everything is ESM (`"type": "module"`, `module: NodeNext`): relative imports need the `.js` extension. Packages compile to `dist/` with `tsc`; apps import them from `dist`, so run `pnpm build` (or `pnpm dev`, which builds first) after changing a package.
@@ -544,6 +550,6 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 ### Verified on 2026-10-04 (later)
 - Real PR review end to end on `Sliim-Bouzidi/Nexora` PR #1: GitHub App install -> webhook via smee -> worker -> 8 inline comments posted (all 4 planted issues found). Semgrep skipped (not installed).
 - `apps/web` dashboard exists: overview, repositories (enable/index), repo reviews + settings, review detail, API keys. UI components copied from `next-shadcn-dashboard-starter` (shadcn base-nova, Base UI, Tabler icons).
-- Dashboard was exercised in a browser against the real API in dev-bypass mode (no Clerk keys). The Clerk sign-in path compiles but has never run with real keys.
+- Dashboard was exercised in a browser against the real API in dev-bypass mode. Clerk keys were added afterwards and sign-in works; `AUTH_DEV_BYPASS` must be `false` for the API to require a Clerk session.
 - `apps/web` reads the root `.env` (see `next.config.ts`). `start.bat` starts database, webhook forwarder and `pnpm dev` (output in `dev.log`).
 - Known gap: repos connected while in dev-bypass mode belong to the `dev-user`; after enabling Clerk the signed-in user must reconnect GitHub to see them.

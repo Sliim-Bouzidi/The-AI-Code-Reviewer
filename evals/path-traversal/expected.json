@@ -1,0 +1,7 @@
+{
+  "description": "User-controlled file name joined onto a base directory.",
+  "expected": [
+    { "file": "files.ts", "lines": [8, 9], "category": "security", "issue": "Path traversal: ../ in name escapes /srv/uploads" }
+  ],
+  "acceptable_extra": ["no error handling when the file does not exist"]
+}

@@ -1,0 +1,8 @@
+{
+  "description": "Two off-by-one errors.",
+  "expected": [
+    { "file": "paginate.ts", "lines": [3, 3], "category": "bug", "issue": "slice end is start + size + 1: returns one item too many" },
+    { "file": "paginate.ts", "lines": [8, 9], "category": "bug", "issue": "loop uses <= so values[length] is undefined and the sum becomes NaN" }
+  ],
+  "acceptable_extra": ["average of an empty array divides by zero", "page is 0-based without documentation"]
+}
