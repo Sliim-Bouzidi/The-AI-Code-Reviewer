@@ -162,6 +162,25 @@ export const githubApp = pgTable('github_app', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * AI provider settings saved from the dashboard (single row). Every column is optional: a null value
+ * means "use the env var". Read through getLlmEnv (packages/db). Keys are never sent back to the browser.
+ * Demo limitation: stored as plain text, like the GitHub App private key.
+ */
+export const llmSettings = pgTable('llm_settings', {
+  id: text('id').primaryKey().default('default'),
+  geminiApiKey: text('gemini_api_key'),
+  openrouterApiKey: text('openrouter_api_key'),
+  openaiCompatBaseUrl: text('openai_compat_base_url'),
+  openaiCompatApiKey: text('openai_compat_api_key'),
+  llmProvider: text('llm_provider'),
+  llmModel: text('llm_model'),
+  llmFallbackProvider: text('llm_fallback_provider'),
+  llmFallbackModel: text('llm_fallback_model'),
+  embeddingModel: text('embedding_model'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** One row per pipeline stage of a review, so the dashboard can show the agent working live. */
 export const reviewEvents = pgTable(
   'review_events',

@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { createDb, eq, repositories, reviews } from '@codereview/db';
+import { createDb, eq, getLlmEnv, LLM_SETTING_ENV, repositories, reviews } from '@codereview/db';
 import { createEmbedderFromEnv, createProvidersFromEnv } from '@codereview/llm';
 import { loadEnv, QUEUES, redisConnection } from '@codereview/shared';
 import type { IndexJobData, ReviewJobData } from '@codereview/shared';
@@ -23,10 +23,44 @@ if (!deps.embedder) log('worker', 'WARNING: embeddings not configured, indexing/
 
 const connection = redisConnection();
 
+/**
+ * Keys and models can be changed from the dashboard ("AI providers"), so before each job the worker
+ * re-reads them (DB values over .env) and rebuilds the providers only when something changed.
+ * Rebuilding only on change keeps each provider's throttle state between jobs.
+ */
+let providerSignature = JSON.stringify(Object.values(LLM_SETTING_ENV).map((name) => process.env[name] ?? ''));
+async function refreshProviders(): Promise<void> {
+  const env = await getLlmEnv(deps.db);
+  const signature = JSON.stringify(Object.values(LLM_SETTING_ENV).map((name) => env[name] ?? ''));
+  if (signature === providerSignature) return;
+  providerSignature = signature;
+  deps.llm = createProvidersFromEnv(env);
+  deps.embedder = createEmbedderFromEnv(env);
+  log('worker', 'providers updated from dashboard settings', {
+    providers: deps.llm.map((p) => `${p.name}:${p.model}`),
+    embeddings: deps.embedder?.model ?? null,
+  });
+}
+await refreshProviders().catch(() => undefined);
+
 // concurrency 1 keeps us inside free-tier rate limits; calls are also throttled in packages/llm
 const workers = [
-  new Worker<ReviewJobData>(QUEUES.REVIEW, (job) => runReview(deps, job.data), { connection, concurrency: 1 }),
-  new Worker<IndexJobData>(QUEUES.INDEX, (job) => runIndex(deps, job.data), { connection, concurrency: 1 }),
+  new Worker<ReviewJobData>(
+    QUEUES.REVIEW,
+    async (job) => {
+      await refreshProviders();
+      return runReview(deps, job.data);
+    },
+    { connection, concurrency: 1 },
+  ),
+  new Worker<IndexJobData>(
+    QUEUES.INDEX,
+    async (job) => {
+      await refreshProviders();
+      return runIndex(deps, job.data);
+    },
+    { connection, concurrency: 1 },
+  ),
 ];
 
 for (const w of workers) {

@@ -17,7 +17,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { API_URL, errorMessage, useApi } from '@/lib/api';
+import { CopyBlock } from '@/components/copy-block';
+import { errorMessage, MCP_URL, useApi } from '@/lib/api';
 import type { ApiKey } from '@/lib/api';
 import { timeAgo } from '@/lib/utils';
 
@@ -63,26 +64,19 @@ export default function KeysPage() {
     setCreated(null);
     create.reset();
   };
-  const mcpConfig = JSON.stringify(
-    {
-      mcpServers: {
-        codereview: {
-          command: 'node',
-          args: ['<path to this project>/apps/mcp/dist/stdio.js'],
-          env: { CODEREVIEW_API_URL: API_URL, CODEREVIEW_API_KEY: created ?? '<your API key>' },
-        },
-      },
-    },
-    null,
-    2,
-  );
+  // The MCP server already runs in Docker on port 4100, so AI tools only need its URL and a key.
+  const mcpJson = (key: string) =>
+    JSON.stringify({ mcpServers: { codereview: { url: MCP_URL, headers: { Authorization: `Bearer ${key}` } } } }, null, 2);
+  const claudeCommand = (key: string) =>
+    `claude mcp add --transport http codereview ${MCP_URL} --header "Authorization: Bearer ${key}"`;
+  const placeholder = 'crk_YOUR_KEY_HERE';
   const active = keys.data?.filter((k) => !k.revokedAt) ?? [];
   const revoked = keys.data?.filter((k) => k.revokedAt) ?? [];
 
   return (
     <PageContainer
-      title='API keys'
-      description='Keys let the MCP server (for example in Claude Code) call this reviewer on your behalf.'
+      title='API keys & MCP'
+      description='Keys let AI coding tools (Cursor, Claude Code, …) use this reviewer through the MCP server, on your behalf.'
       action={
         <Button onClick={() => setOpen(true)}>
           <IconPlus />
@@ -143,14 +137,31 @@ export default function KeysPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Use it from Claude Code</CardTitle>
+          <CardTitle>Connect an AI coding tool (MCP)</CardTitle>
           <CardDescription>
-            Add this to the <code className='font-mono'>.mcp.json</code> of the project you want reviewed, with your key and the
-            path to this project. Then run <code className='font-mono'>/mcp__codereview__review</code>.
+            The MCP server runs with the rest of the app (Docker, <code className='font-mono'>{MCP_URL}</code>). Paste this into
+            your tool&apos;s MCP config and replace <code className='font-mono'>{placeholder}</code> with a key from this page.
+            The full key is only shown once, right after you create it, and the snippet there already contains it.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <pre className='bg-muted overflow-x-auto rounded-lg p-3 font-mono text-xs leading-relaxed'>{mcpConfig}</pre>
+        <CardContent className='flex flex-col gap-4'>
+          <div className='flex flex-col gap-2'>
+            <span className='text-sm font-medium'>
+              Cursor, Claude Desktop, VS Code, Windsurf…{' '}
+              <span className='text-muted-foreground font-normal'>
+                (Cursor: <code className='font-mono'>~/.cursor/mcp.json</code>)
+              </span>
+            </span>
+            <CopyBlock code={mcpJson(placeholder)} label='Copy MCP config' copiedMessage='MCP config copied' />
+          </div>
+          <div className='flex flex-col gap-2'>
+            <span className='text-sm font-medium'>Claude Code (one command)</span>
+            <CopyBlock code={claudeCommand(placeholder)} label='Copy command' copiedMessage='Command copied' />
+          </div>
+          <p className='text-muted-foreground text-xs'>
+            Then ask your assistant things like “review my uncommitted changes with codereview”, or type{' '}
+            <code className='font-mono'>/mcp__codereview__review</code> in Claude Code.
+          </p>
         </CardContent>
       </Card>
 
@@ -167,6 +178,10 @@ export default function KeysPage() {
                 <Button variant='outline' size='icon' aria-label='Copy key' onClick={() => copy(created, 'Key')}>
                   <IconCopy />
                 </Button>
+              </div>
+              <div className='flex min-w-0 flex-col gap-2'>
+                <span className='text-sm font-medium'>Ready-to-paste MCP config with this key</span>
+                <CopyBlock code={mcpJson(created)} label='Copy MCP config' copiedMessage='MCP config copied' />
               </div>
               <DialogFooter>
                 <Button onClick={closeCreate}>Done</Button>

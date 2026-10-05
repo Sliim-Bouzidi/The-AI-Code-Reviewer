@@ -1,12 +1,15 @@
 'use client';
 
 import type {
-  PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, UpdateRepoSettings,
+  LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
+  UpdateLlmSettings, UpdateRepoSettings,
 } from '@codereview/shared';
 import * as React from 'react';
 import { useGetToken } from './auth';
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+/** The MCP server's HTTP endpoint, as AI tools (Cursor, Claude Code) on this machine reach it. */
+export const MCP_URL = `${(process.env.NEXT_PUBLIC_MCP_URL ?? 'http://localhost:4100').replace(/\/$/, '')}/mcp`;
 
 export interface ApiKey {
   id: string;
@@ -101,6 +104,10 @@ export function useApi() {
       notifications: () => request<{ items: AppNotification[]; unread: number }>('GET', '/api/notifications'),
       readNotification: (id: string) => request<void>('POST', `/api/notifications/${id}/read`),
       readAllNotifications: () => request<void>('POST', '/api/notifications/read-all'),
+      llmSettings: () => request<LlmSettingsResponse>('GET', '/api/settings/llm'),
+      updateLlmSettings: (body: UpdateLlmSettings) => request<LlmSettingsResponse>('PUT', '/api/settings/llm', body),
+      testLlm: (slot: 'primary' | 'fallback' | 'embeddings') =>
+        request<TestLlmResponse>('POST', '/api/settings/llm/test', { slot }),
       setupStatus: () => request<SetupStatus>('GET', '/api/setup/status'),
       githubAppManifest: () =>
         request<{ postUrl: string; manifest: Record<string, unknown> }>('POST', '/api/setup/github-app'),

@@ -176,6 +176,61 @@ export const RulesResponseSchema = z.object({
 });
 export type RulesResponse = z.infer<typeof RulesResponseSchema>;
 
+// ---------- AI providers (dashboard settings) ----------
+export const LlmProviderNameSchema = z.enum(['gemini', 'openrouter', 'openai']);
+export type LlmProviderName = z.infer<typeof LlmProviderNameSchema>;
+
+/**
+ * PUT /api/settings/llm. Every field optional; "" clears the dashboard value (the `.env` one applies
+ * again). Keys are write-only: GET never returns them.
+ */
+const optionalText = (max: number) => z.string().trim().max(max).optional();
+export const UpdateLlmSettingsSchema = z.object({
+  geminiApiKey: optionalText(300),
+  openrouterApiKey: optionalText(300),
+  openaiCompatBaseUrl: z.union([z.literal(''), z.string().trim().url().max(300)]).optional(),
+  openaiCompatApiKey: optionalText(300),
+  llmProvider: z.union([z.literal(''), LlmProviderNameSchema]).optional(),
+  llmModel: optionalText(200),
+  llmFallbackProvider: z.union([z.literal(''), LlmProviderNameSchema]).optional(),
+  llmFallbackModel: optionalText(200),
+  embeddingModel: optionalText(200),
+});
+export type UpdateLlmSettings = z.infer<typeof UpdateLlmSettingsSchema>;
+
+/** Where a value comes from: saved in the dashboard, the `.env` file, or nowhere. */
+export type SettingSource = 'dashboard' | 'env' | null;
+export interface LlmKeyStatus {
+  set: boolean;
+  last4: string | null; // only the last 4 characters, for recognition
+  source: SettingSource;
+}
+export interface LlmSlotStatus {
+  provider: string | null; // label of the provider actually used ("gemini", "nvidia", ...)
+  model: string | null;
+  configured: boolean;
+}
+export interface LlmSettingsResponse {
+  keys: { gemini: LlmKeyStatus; openrouter: LlmKeyStatus; openai: LlmKeyStatus & { baseUrl: string | null } };
+  choice: {
+    llmProvider: string | null;
+    llmModel: string | null;
+    llmFallbackProvider: string | null;
+    llmFallbackModel: string | null;
+    embeddingModel: string | null;
+  };
+  active: { primary: LlmSlotStatus; fallback: LlmSlotStatus; embeddings: LlmSlotStatus };
+}
+
+export const TestLlmBodySchema = z.object({ slot: z.enum(['primary', 'fallback', 'embeddings']) });
+export interface TestLlmResponse {
+  ok: boolean;
+  ms: number;
+  provider: string | null;
+  model: string | null;
+  message: string;
+}
+
 // ---------- API keys ----------
 export const ApiKeySchema = z.object({
   id: z.string(),

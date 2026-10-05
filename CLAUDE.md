@@ -541,6 +541,7 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - Extra env vars: `GITHUB_APP_SLUG`, `WEB_URL`, `AUTH_DEV_BYPASS`, `LLM_FALLBACK_MODEL`, `LLM_MIN_INTERVAL_MS`, `SEMGREP_CONFIG`, `MCP_PORT`.
 - The index queue is named `index-repo` (BullMQ queue names), the job is still "index_repo" conceptually.
 - LLM providers are called over HTTP directly instead of through their SDKs.
+- Besides Gemini and OpenRouter, `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` accept `openai`: any OpenAI-compatible endpoint (`OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`), e.g. NVIDIA NIM or Groq, whose free tiers are far larger than Gemini's ~20 review calls/day. Embeddings still use Gemini only.
 - `pnpm db:migrate` is the root alias for `pnpm --filter db migrate`.
 - `GEMINI_BASE_URL` (optional) points the Gemini provider at another host; used only to replay recorded answers in tests.
 

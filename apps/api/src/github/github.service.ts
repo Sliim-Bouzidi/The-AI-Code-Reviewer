@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { App } from '@octokit/app';
 import {
-  clearGithubAppCache, eq, getGithubAppConfig, githubApp, inArray, installations, repositories, requireGithubAppConfig,
+  clearGithubAppCache, eq, getGithubAppConfig, getLlmEnv, githubApp, inArray, installations, repositories, requireGithubAppConfig,
 } from '@codereview/db';
 import type { Db } from '@codereview/db';
+import { llmConfigured } from '@codereview/llm';
 import { DB } from '../common/db.module.js';
 
 /**
@@ -62,7 +63,7 @@ export class GithubService {
       githubAppConfigured: !!config,
       appSlug: config?.slug || null,
       webhookUrl: this.webhookUrl(),
-      llmConfigured: !!(process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY),
+      llmConfigured: llmConfigured(await getLlmEnv(this.db)),
     };
   }
 

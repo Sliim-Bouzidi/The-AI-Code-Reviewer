@@ -23,6 +23,15 @@ Open **http://localhost:3000** and follow the dashboard:
 3. On the **Repositories** page, turn reviews **on** for a repo (optionally click *Index* so the reviewer knows the whole codebase).
 4. **Open a pull request** on that repo. The bot reacts with 👀 and starts an "AI Code Review" check, then posts inline comments. Open the review in the dashboard to see each pipeline step live.
 
+**Recommended: add a second free AI provider.** Gemini's free tier allows only about 20 review calls a day. Any OpenAI-compatible provider works as a fallback, for example NVIDIA NIM (free key at https://build.nvidia.com/settings/api-keys, ~40 requests/minute) or Groq (https://console.groq.com/keys, no card). In `.env`:
+
+```
+OPENAI_COMPAT_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENAI_COMPAT_API_KEY=your-nvidia-key
+LLM_FALLBACK_PROVIDER=openai
+LLM_FALLBACK_MODEL=z-ai/glm-5.3
+```
+
 The first `docker compose up --build` takes a few minutes (it builds the images). Later starts take seconds.
 
 ### What runs

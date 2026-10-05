@@ -9,6 +9,7 @@ import {
   IconLayoutDashboard,
   IconLogout,
   IconSettings,
+  IconSparkles,
   IconUser,
   IconUserCode,
 } from '@tabler/icons-react';
@@ -24,7 +25,8 @@ import { CLERK_ENABLED } from '@/lib/auth';
 const NAV = [
   { title: 'Overview', url: '/dashboard', icon: IconLayoutDashboard, exact: true },
   { title: 'Repositories', url: '/dashboard/repos', icon: IconGitPullRequest, also: '/dashboard/reviews' },
-  { title: 'API keys', url: '/dashboard/keys', icon: IconKey },
+  { title: 'AI providers', url: '/dashboard/providers', icon: IconSparkles },
+  { title: 'API keys & MCP', url: '/dashboard/keys', icon: IconKey },
 ];
 
 /* ─── Vercel-style User Dropdown ─── */
