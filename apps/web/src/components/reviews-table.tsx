@@ -19,17 +19,20 @@ export function ReviewsTable({ reviews, repoNames }: { reviews: Review[]; repoNa
         </TableRow>
       </TableHeader>
       <TableBody>
-        {reviews.map((r) => (
+        {reviews.map((r) => {
+          const title = r.prNumber != null ? `#${r.prNumber} ${r.prTitle ?? ''}` : 'Local diff review';
+          return (
           <TableRow key={r.id}>
             <TableCell className='max-w-[28rem]'>
-              <Link href={`/dashboard/reviews/${r.id}`} className='font-medium underline-offset-4 hover:underline'>
-                {r.prNumber != null ? `#${r.prNumber} ${r.prTitle ?? ''}` : 'Local diff review'}
+              {/* long PR titles are cut with "…"; the full title shows on hover */}
+              <Link href={`/dashboard/reviews/${r.id}`} title={title} className='block truncate font-medium underline-offset-4 hover:underline'>
+                {title}
               </Link>
               <div className='text-muted-foreground truncate text-xs'>
                 {r.status === 'failed' ? r.error : (r.summary ?? 'No summary yet')}
               </div>
             </TableCell>
-            {repoNames && <TableCell>{r.repoId ? repoNames[r.repoId] : '-'}</TableCell>}
+            {repoNames && <TableCell className='whitespace-nowrap'>{r.repoId ? repoNames[r.repoId] : '-'}</TableCell>}
             <TableCell>
               <ReviewStatusBadge status={r.status} />
             </TableCell>
@@ -39,7 +42,8 @@ export function ReviewsTable({ reviews, repoNames }: { reviews: Review[]; repoNa
             <TableCell className='text-right tabular-nums'>{formatDuration(r.durationMs)}</TableCell>
             <TableCell className='text-muted-foreground text-right whitespace-nowrap'>{timeAgo(r.createdAt)}</TableCell>
           </TableRow>
-        ))}
+          );
+        })}
       </TableBody>
     </Table>
   );
