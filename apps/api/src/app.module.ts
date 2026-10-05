@@ -7,6 +7,8 @@ import { GithubController } from './github/github.controller.js';
 import { GithubService } from './github/github.service.js';
 import { WebhookController } from './github/webhook.controller.js';
 import { KeysController } from './keys/keys.controller.js';
+import { NotificationsController } from './notifications/notifications.controller.js';
+import { RealtimeService } from './realtime/realtime.service.js';
 import { ReposController } from './repos/repos.controller.js';
 import { ReposService } from './repos/repos.service.js';
 import { ReviewsController } from './reviews/reviews.controller.js';
@@ -25,7 +27,10 @@ class HealthController {
     BullModule.forRootAsync({ useFactory: () => ({ connection: redisConnection() }) }),
     BullModule.registerQueue({ name: QUEUES.REVIEW }, { name: QUEUES.INDEX }),
   ],
-  controllers: [HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController],
-  providers: [AuthGuard, GithubService, ReposService],
+  controllers: [
+    HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController,
+    NotificationsController,
+  ],
+  providers: [AuthGuard, GithubService, ReposService, RealtimeService],
 })
 export class AppModule {}

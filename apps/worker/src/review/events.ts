@@ -1,5 +1,7 @@
 import { reviewEvents } from '@codereview/db';
 import type { Db } from '@codereview/db';
+import { CHANNELS } from '@codereview/shared';
+import { publish } from '../pubsub.js';
 
 export type Stage = 'fetch' | 'parse' | 'static_analysis' | 'context' | 'llm' | 'validate' | 'post';
 export type StageStatus = 'running' | 'done' | 'skipped' | 'failed';
@@ -25,6 +27,7 @@ export async function emit(
 ): Promise<void> {
   try {
     await db.insert(reviewEvents).values({ reviewId, stage, status, detail: detail ?? null, durationMs: durationMs ?? null });
+    await publish(CHANNELS.review(reviewId), { type: 'review', reviewId, stage, status });
   } catch {
     // progress reporting must never break a review
   }

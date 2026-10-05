@@ -10,6 +10,7 @@ import { log } from '../deps.js';
 import { getInstallationToken } from '../github.js';
 import { isIgnoredPath } from '../review/filter.js';
 import { languageOf } from './chunker.js';
+import { notifyIndex } from '../notify.js';
 import { chunkFileBySymbol } from './symbols.js';
 
 const exec = promisify(execFile);
@@ -131,6 +132,7 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
         .set({ indexStatus: 'ready', lastIndexedSha: sha, indexProgress: `${rows.length} chunks indexed` })
         .where(eq(repositories.id, job.repoId));
     });
+    await notifyIndex(db, job.repoId, 'ready', `${rows.length} chunks indexed`);
     log('index', 'completed', { repoId: job.repoId, mode: incremental ? 'incremental' : 'full', chunks: rows.length, embedded: toEmbed.length });
   } catch (err) {
     const message = (err as Error).message;

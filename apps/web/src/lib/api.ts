@@ -32,6 +32,16 @@ export interface ReviewEvent {
   createdAt: string;
 }
 
+export interface AppNotification {
+  id: string;
+  kind: 'review_completed' | 'review_failed' | 'index_ready' | 'index_failed';
+  title: string;
+  body: string | null;
+  link: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -88,6 +98,9 @@ export function useApi() {
         request<PaginatedReviews>('GET', `/api/repos/${repoId}/reviews?page=${page}&pageSize=${pageSize}`),
       review: (id: string) => request<ReviewWithFindings>('GET', `/api/reviews/${id}`),
       installUrl: () => request<{ url: string }>('GET', '/api/github/install-url'),
+      notifications: () => request<{ items: AppNotification[]; unread: number }>('GET', '/api/notifications'),
+      readNotification: (id: string) => request<void>('POST', `/api/notifications/${id}/read`),
+      readAllNotifications: () => request<void>('POST', '/api/notifications/read-all'),
       setupStatus: () => request<SetupStatus>('GET', '/api/setup/status'),
       githubAppManifest: () =>
         request<{ postUrl: string; manifest: Record<string, unknown> }>('POST', '/api/setup/github-app'),
