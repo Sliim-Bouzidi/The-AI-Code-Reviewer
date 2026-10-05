@@ -8,8 +8,12 @@ import {
 import type { Db } from '@codereview/db';
 import { DB } from '../common/db.module.js';
 
-/** Signs the `state` parameter of GitHub redirects. Random per boot: the flows last a few minutes. */
-const STATE_SECRET = process.env.STATE_SECRET ?? randomBytes(32).toString('hex');
+/**
+ * Fallback key for signing the `state` of GitHub redirects, used only before any GitHub App exists
+ * (the first "Create GitHub App" flow). Once an app exists its webhook secret is used, which
+ * survives API restarts; a per-boot key broke callbacks whenever the dev server reloaded.
+ */
+const BOOT_SECRET = randomBytes(32).toString('hex');
 
 @Injectable()
 export class GithubService {
@@ -64,7 +68,7 @@ export class GithubService {
 
   // ---- one-click GitHub App creation (GitHub "manifest" flow)
   /** The manifest the browser POSTs to GitHub. GitHub shows one confirmation page and sends back a code. */
-  manifest(userId: string) {
+  async manifest(userId: string) {
     const webhook = this.webhookUrl();
     if (!webhook) {
       throw new ServiceUnavailableException(
@@ -74,7 +78,7 @@ export class GithubService {
     const web = (process.env.WEB_URL ?? 'http://localhost:3000').replace(/\/$/, '');
     const api = this.apiPublicUrl();
     return {
-      postUrl: `https://github.com/settings/apps/new?state=${this.state(userId)}`,
+      postUrl: `https://github.com/settings/apps/new?state=${await this.state(userId)}`,
       manifest: {
         name: `AI Code Reviewer ${randomBytes(2).toString('hex')}`,
         url: web,
@@ -111,20 +115,28 @@ export class GithubService {
   }
 
   // ---- "Connect GitHub": `state` ties the GitHub redirect back to the logged-in user
-  private sign(value: string): string {
-    return createHmac('sha256', STATE_SECRET).update(`state:${value}`).digest('hex').slice(0, 32);
+  private async stateKeys(): Promise<string[]> {
+    const config = await getGithubAppConfig(this.db);
+    // the boot key stays accepted so a manifest flow started before the app existed can finish
+    return [process.env.STATE_SECRET, config?.webhookSecret, BOOT_SECRET].filter((k): k is string => !!k);
   }
-  state(userId: string): string {
-    return `${userId}.${this.sign(userId)}`;
+  private sign(key: string, value: string): string {
+    return createHmac('sha256', key).update(`state:${value}`).digest('hex').slice(0, 32);
+  }
+  async state(userId: string): Promise<string> {
+    const [key] = await this.stateKeys();
+    return `${userId}.${this.sign(key!, userId)}`;
   }
   async installUrl(userId: string): Promise<string> {
     const config = await getGithubAppConfig(this.db);
     if (!config?.slug) throw new ServiceUnavailableException('GitHub App is not set up yet.');
-    return `https://github.com/apps/${config.slug}/installations/new?state=${this.state(userId)}`;
+    return `https://github.com/apps/${config.slug}/installations/new?state=${await this.state(userId)}`;
   }
-  userIdFromState(state: string | undefined): string | null {
+  async userIdFromState(state: string | undefined): Promise<string | null> {
     const [userId, sig] = (state ?? '').split('.');
-    return userId && sig && sig === this.sign(userId) ? userId : null;
+    if (!userId || !sig) return null;
+    const keys = await this.stateKeys();
+    return keys.some((k) => this.sign(k, userId) === sig) ? userId : null;
   }
 
   /** Stores (or updates) an installation and its repo list. `userId` is only known in the callback. */
