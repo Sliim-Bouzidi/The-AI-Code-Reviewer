@@ -36,7 +36,7 @@ export class GithubController {
    */
   @Get('github/manifest-callback')
   async manifestCallback(@Query('code') code: string | undefined, @Query('state') state: string | undefined, @Res() res: Response) {
-    const userId = this.github.userIdFromState(state);
+    const userId = await this.github.userIdFromState(state);
     if (!userId || !code) throw new BadRequestException('Invalid setup callback');
     await this.github.completeManifest(code);
     res.redirect(await this.github.installUrl(userId));
@@ -45,6 +45,8 @@ export class GithubController {
   /**
    * GitHub App "Setup URL". The browser arrives here from GitHub without our auth header, so the
    * user is identified by the signed `state` created in install-url.
+   * Without a valid state (repos changed from GitHub's own settings page, setup_action=update) the
+   * repo list is still refreshed, but the installation is not linked to anyone new.
    * Demo limitation: installation_id itself is not proven to belong to that GitHub user.
    */
   @Get('github/callback')
@@ -53,9 +55,9 @@ export class GithubController {
     @Query('state') state: string | undefined,
     @Res() res: Response,
   ) {
-    const userId = this.github.userIdFromState(state);
-    if (!userId || !/^\d+$/.test(installationId ?? '')) throw new BadRequestException('Invalid callback');
-    await this.github.syncInstallation(Number(installationId), userId);
+    if (!/^\d+$/.test(installationId ?? '')) throw new BadRequestException('Invalid callback');
+    const userId = await this.github.userIdFromState(state);
+    await this.github.syncInstallation(Number(installationId), userId ?? undefined);
     res.redirect(`${webUrl()}/dashboard/repos`);
   }
 }

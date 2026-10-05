@@ -41,7 +41,16 @@ export class WebhookController {
       .returning({ id: webhookDeliveries.deliveryId });
     if (fresh.length === 0) return { ok: true, duplicate: true };
 
-    const payload = req.body as any;
+    try {
+      return await this.dispatch(event, req.body as any);
+    } catch (err) {
+      // forget the delivery so GitHub's "Redeliver" (or its automatic retry) is not dropped as a duplicate
+      await this.db.delete(webhookDeliveries).where(eq(webhookDeliveries.deliveryId, deliveryId));
+      throw err;
+    }
+  }
+
+  private async dispatch(event: string, payload: any) {
     if (event === 'pull_request') return this.onPullRequest(payload);
     if (event === 'push') return this.onPush(payload);
     if (event === 'installation' || event === 'installation_repositories') {
