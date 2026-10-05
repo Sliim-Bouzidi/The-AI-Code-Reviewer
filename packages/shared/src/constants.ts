@@ -1,5 +1,5 @@
 /** BullMQ queue names, shared by the API (producer) and the worker (consumer). */
-export const QUEUES = { REVIEW: 'review', INDEX: 'index-repo' } as const;
+export const QUEUES = { REVIEW: 'review', INDEX: 'index-repo', EVAL: 'eval' } as const;
 
 export const API_KEY_PREFIX = 'crk_';
 

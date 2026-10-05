@@ -241,7 +241,7 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
     } else {
       await emit(db, review.id, 'post', 'skipped', 'local review, nothing to post');
     }
-    await notifyReview(db, review.id, 'completed');
+    if (!job.silent) await notifyReview(db, review.id, 'completed'); // eval reviews stay quiet
     log('review', 'completed', { reviewId: review.id, findings: final.length, ms: Date.now() - started });
   } catch (err) {
     const message = (err as Error).message.slice(0, 500);

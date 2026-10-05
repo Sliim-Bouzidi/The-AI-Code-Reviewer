@@ -2,6 +2,7 @@
 
 import { useUser, useClerk } from '@clerk/nextjs';
 import {
+  IconChartBar,
   IconChevronRight,
   IconCode,
   IconGitPullRequest,
@@ -23,6 +24,7 @@ import {
 const NAV = [
   { title: 'Overview', url: '/dashboard', icon: IconLayoutDashboard, exact: true },
   { title: 'Repositories', url: '/dashboard/repos', icon: IconGitPullRequest, also: '/dashboard/reviews' },
+  { title: 'Quality', url: '/dashboard/quality', icon: IconChartBar },
   { title: 'AI providers', url: '/dashboard/providers', icon: IconSparkles },
   { title: 'API keys & MCP', url: '/dashboard/keys', icon: IconKey },
 ];

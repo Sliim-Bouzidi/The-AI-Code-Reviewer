@@ -1,6 +1,6 @@
 'use client';
 
-import { IconAlertTriangle, IconBell, IconCircleCheck, IconDatabase } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBell, IconChartBar, IconCircleCheck, IconDatabase } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -15,6 +15,7 @@ import type { RealtimeEvent } from '@codereview/shared';
 function KindIcon({ kind }: { kind: AppNotification['kind'] }) {
   if (kind === 'review_failed' || kind === 'index_failed') return <IconAlertTriangle className='size-4 shrink-0 text-red-500' />;
   if (kind === 'index_ready') return <IconDatabase className='size-4 shrink-0 text-sky-500' />;
+  if (kind === 'eval_completed') return <IconChartBar className='size-4 shrink-0 text-sky-500' />;
   return <IconCircleCheck className='size-4 shrink-0 text-emerald-500' />;
 }
 

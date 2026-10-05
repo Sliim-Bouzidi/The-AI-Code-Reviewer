@@ -198,6 +198,54 @@ export const reviewEvents = pgTable(
   (t) => [index('review_events_review_created').on(t.reviewId, t.createdAt)],
 );
 
+/** One "Run evals" from the Quality page: totals across all cases (evals/). */
+export const evalRuns = pgTable(
+  'eval_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status').$type<'queued' | 'running' | 'completed' | 'failed'>().notNull(),
+    provider: text('provider'), // model that answered most cases
+    model: text('model'),
+    casesTotal: integer('cases_total'),
+    casesDone: integer('cases_done').notNull().default(0),
+    expected: integer('expected').notNull().default(0),
+    caught: integer('caught').notNull().default(0),
+    findings: integer('findings').notNull().default(0),
+    onTarget: integer('on_target').notNull().default(0),
+    falseAlarms: integer('false_alarms').notNull().default(0),
+    durationMs: integer('duration_ms'),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('eval_runs_user_created').on(t.userId, t.createdAt)],
+);
+
+/** Score of one eval case within a run. */
+export const evalCaseResults = pgTable(
+  'eval_case_results',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => evalRuns.id, { onDelete: 'cascade' }),
+    caseName: text('case_name').notNull(),
+    description: text('description'),
+    expected: integer('expected').notNull(),
+    caught: integer('caught').notNull(),
+    findings: integer('findings').notNull(),
+    onTarget: integer('on_target').notNull(),
+    falseAlarms: integer('false_alarms').notNull(),
+    missed: jsonb('missed').$type<string[]>().notNull().default([]),
+    reviewId: uuid('review_id').references(() => reviews.id, { onDelete: 'set null' }),
+    durationMs: integer('duration_ms'),
+    error: text('error'),
+  },
+  (t) => [index('eval_case_results_run').on(t.runId)],
+);
+
 /** Dashboard notifications ("review finished", "indexing failed", ...). Written by the worker. */
 export const notifications = pgTable(
   'notifications',
@@ -206,7 +254,7 @@ export const notifications = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'review_completed' | 'review_failed' | 'index_ready' | 'index_failed'>().notNull(),
+    kind: text('kind').$type<'review_completed' | 'review_failed' | 'index_ready' | 'index_failed' | 'eval_completed' | 'eval_failed'>().notNull(),
     title: text('title').notNull(),
     body: text('body'),
     link: text('link'), // dashboard path to open, e.g. /dashboard/reviews/<id>
