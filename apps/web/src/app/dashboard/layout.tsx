@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
+import { OnboardingGate } from '@/components/onboarding-gate';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -13,13 +14,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!userId) return redirectToSignIn();
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get('sidebar_state')?.value !== 'false';
+  // signed in, but GitHub not connected yet -> /onboarding (OnboardingGate)
   return (
-    <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar />
-      <SidebarInset>
-        <Header />
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+    <OnboardingGate>
+      <SidebarProvider defaultOpen={defaultOpen}>
+        <AppSidebar />
+        <SidebarInset>
+          <Header />
+          {children}
+        </SidebarInset>
+      </SidebarProvider>
+    </OnboardingGate>
   );
 }

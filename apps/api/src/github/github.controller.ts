@@ -16,6 +16,13 @@ export class GithubController {
     return { url: await this.github.installUrl(user.id) };
   }
 
+  /** Onboarding gate: has the signed-in user connected at least one GitHub installation? */
+  @Get('github/connection')
+  @UseGuards(AuthGuard)
+  connection(@CurrentUser() user: AuthUser) {
+    return this.github.connection(user.id);
+  }
+
   /** What the setup wizard needs to know: is the GitHub App created, is there a webhook URL, is an LLM key set. */
   @Get('setup/status')
   @UseGuards(AuthGuard)

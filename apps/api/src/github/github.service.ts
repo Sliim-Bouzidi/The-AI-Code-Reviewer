@@ -86,6 +86,21 @@ export class GithubService {
   }
 
   /**
+   * Has this user connected GitHub? The dashboard is locked behind this (onboarding): signing in with
+   * Clerk (Gmail, GitHub, ...) only identifies the person; installing the GitHub App links repositories.
+   */
+  async connection(userId: string) {
+    const insts = await this.db
+      .select({ id: installations.id, account: installations.accountLogin })
+      .from(installations)
+      .where(eq(installations.userId, userId));
+    const repos = insts.length
+      ? await this.db.select({ id: repositories.id }).from(repositories).where(inArray(repositories.installationId, insts.map((i) => i.id)))
+      : [];
+    return { connected: insts.length > 0, accounts: insts.map((i) => i.account), repoCount: repos.length };
+  }
+
+  /**
    * Forgets the GitHub App created from the dashboard, so a new one can be created, e.g. while logged
    * into a different GitHub account. Its installations (and their repos and reviews) are removed too:
    * they belong to the old app and cannot be used with a new one. The app itself stays on GitHub;

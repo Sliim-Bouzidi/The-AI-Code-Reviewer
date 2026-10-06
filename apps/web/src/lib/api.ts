@@ -122,6 +122,8 @@ export function useApi() {
       testLlm: (slot: 'primary' | 'fallback' | 'embeddings') =>
         request<TestLlmResponse>('POST', '/api/settings/llm/test', { slot }),
       setupStatus: () => request<SetupStatus>('GET', '/api/setup/status'),
+      githubConnection: () =>
+        request<{ connected: boolean; accounts: string[]; repoCount: number }>('GET', '/api/github/connection'),
       resetGithubApp: () => request<{ removedInstallations: number }>('DELETE', '/api/setup/github-app'),
       githubAppManifest: () =>
         request<{ postUrl: string; manifest: Record<string, unknown> }>('POST', '/api/setup/github-app'),
