@@ -23,9 +23,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 FROM deps AS build
 COPY . .
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000
-ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
@@ -40,7 +38,9 @@ CMD ["pnpm", "--filter", "@codereview/api", "start"]
 FROM build AS web
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@codereview/web", "start"]
+# Clerk keys are read at request time (env or pasted on the setup page). Clerk then needs an
+# encryption key to pass them to server components: generate one per container start if none is set.
+CMD ["sh", "-c", "export CLERK_ENCRYPTION_KEY=\"${CLERK_ENCRYPTION_KEY:-$(node -e 'process.stdout.write(require(`crypto`).randomBytes(32).toString(`hex`))')}\"; exec pnpm --filter @codereview/web start"]
 
 FROM build AS mcp
 EXPOSE 4100

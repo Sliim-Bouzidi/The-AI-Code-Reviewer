@@ -266,6 +266,14 @@ export interface EvalRun {
   cases: EvalCaseResult[];
 }
 
+// ---------- sign-in setup ----------
+/** POST /api/setup/clerk: first-run setup, the two keys from the Clerk dashboard. */
+export const ClerkKeysBodySchema = z.object({
+  publishableKey: z.string().trim().min(10).max(500),
+  secretKey: z.string().trim().min(10).max(500),
+});
+export type ClerkKeysBody = z.infer<typeof ClerkKeysBodySchema>;
+
 // ---------- API keys ----------
 export const ApiKeySchema = z.object({
   id: z.string(),

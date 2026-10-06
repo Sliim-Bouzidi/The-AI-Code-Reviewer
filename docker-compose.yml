@@ -8,6 +8,7 @@ x-app-env: &app-env
     API_PORT: "4000"
     WEB_URL: ${WEB_URL:-http://localhost:3000}
     SMEE_FILE: /data/smee-url
+    CONFIG_DIR: /config # Clerk keys pasted on the setup page (shared with web)
   restart: unless-stopped
 
 services:
@@ -44,7 +45,7 @@ services:
     <<: *app-env
     build: { context: ., target: api }
     ports: ["${API_HOST_PORT:-4000}:4000"]
-    volumes: [smee:/data:ro]
+    volumes: [smee:/data:ro, appconfig:/config]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -62,10 +63,10 @@ services:
       target: web
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     env_file: [.env]
     environment:
-      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      CONFIG_DIR: /config
+    volumes: [appconfig:/config:ro]
     ports: ["${WEB_HOST_PORT:-3000}:3000"]
     depends_on: [api]
     restart: unless-stopped
@@ -92,3 +93,4 @@ services:
 volumes:
   pgdata:
   smee:
+  appconfig: # Clerk keys saved from the first-run setup page

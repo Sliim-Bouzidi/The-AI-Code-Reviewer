@@ -3,13 +3,6 @@
 import { ClerkProvider, useAuth } from '@clerk/nextjs';
 import * as React from 'react';
 
-/**
- * Clerk sign-in is mandatory. The dashboard sends the Clerk session token to the API. Without the
- * publishable key the dashboard is locked (see app/dashboard/layout.tsx), so this is only false on
- * the public pages of an install that has not configured Clerk yet.
- */
-export const CLERK_ENABLED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
-
 type GetToken = () => Promise<string | null>;
 const TokenContext = React.createContext<GetToken>(async () => null);
 export const useGetToken = () => React.useContext(TokenContext);
@@ -35,10 +28,16 @@ function ClerkTokenBridge({ children }: { children: React.ReactNode }) {
   return <TokenContext.Provider value={get}>{children}</TokenContext.Provider>;
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  if (!CLERK_ENABLED) return <>{children}</>;
+/**
+ * Clerk sign-in is mandatory. The publishable key comes from the server at request time (env or the
+ * first-run setup page), not from the build. Without it only the public pages render (no session),
+ * and the dashboard redirects to /sign-in, which asks for the keys.
+ */
+export function AuthProvider({ children, publishableKey }: { children: React.ReactNode; publishableKey: string | null }) {
+  if (!publishableKey) return <>{children}</>;
   return (
     <ClerkProvider
+      publishableKey={publishableKey}
       appearance={{
         variables: {
           colorPrimary: 'var(--primary)',

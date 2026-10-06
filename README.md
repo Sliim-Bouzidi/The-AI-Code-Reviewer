@@ -8,13 +8,13 @@ You can watch it work in three places: the PR on GitHub (an "AI Code Review" che
 
 You need [Docker Desktop](https://www.docker.com/products/docker-desktop/), a free [Clerk](https://dashboard.clerk.com) application for sign-in (enable GitHub as a sign-in method), and a free [Gemini API key](https://aistudio.google.com/apikey).
 
-Sign-in is **required**: without the Clerk keys the dashboard stays locked and shows the setup steps instead.
+Sign-in is **required**. The first time you open the dashboard it asks for the two Clerk keys: paste them and sign-in works immediately, no `.env` edit or rebuild.
 
 ```bash
 git clone https://github.com/Sliim-Bouzidi/The-AI-Code-Reviewer.git
 cd The-AI-Code-Reviewer
 cp .env.example .env          # Windows: copy .env.example .env
-# open .env and fill in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY and GEMINI_API_KEY
+# optional: put keys in .env instead of pasting them in the dashboard
 docker compose up --build
 ```
 

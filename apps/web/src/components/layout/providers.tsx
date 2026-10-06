@@ -6,7 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiError } from '@/lib/api';
 import { AuthProvider } from '@/lib/auth';
 
-export default function Providers({ children }: { children: React.ReactNode }) {
+export default function Providers({ children, publishableKey }: { children: React.ReactNode; publishableKey: string | null }) {
   const [client] = React.useState(
     () =>
       new QueryClient({
@@ -20,7 +20,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       }),
   );
   return (
-    <AuthProvider>
+    <AuthProvider publishableKey={publishableKey}>
       <QueryClientProvider client={client}>
         <TooltipProvider>{children}</TooltipProvider>
       </QueryClientProvider>

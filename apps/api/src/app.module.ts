@@ -2,6 +2,7 @@ import { Controller, Get, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUES, redisConnection } from '@codereview/shared';
 import { AuthGuard } from './auth/auth.guard.js';
+import { ClerkSetupController } from './auth/clerk-setup.controller.js';
 import { DbModule } from './common/db.module.js';
 import { EvalsController } from './evals/evals.controller.js';
 import { GithubController } from './github/github.controller.js';
@@ -31,7 +32,7 @@ class HealthController {
   ],
   controllers: [
     HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController,
-    NotificationsController, LlmSettingsController, EvalsController,
+    NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController,
   ],
   providers: [AuthGuard, GithubService, ReposService, RealtimeService],
 })

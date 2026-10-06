@@ -10,7 +10,6 @@ const nextConfig: NextConfig = {
   transpilePackages: ['geist'],
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`,
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '',
     NEXT_PUBLIC_MCP_URL: process.env.NEXT_PUBLIC_MCP_URL ?? `http://localhost:${process.env.MCP_HOST_PORT ?? 4100}`,
     NEXT_PUBLIC_CLERK_SIGN_IN_URL: '/sign-in',
     NEXT_PUBLIC_CLERK_SIGN_UP_URL: '/sign-up',
