@@ -22,6 +22,9 @@ export interface ApiKey {
 export interface SetupStatus {
   githubAppConfigured: boolean;
   appSlug: string | null;
+  appOwner: string | null; // GitHub account that owns the app: only it can install a private app
+  appUrl: string | null;
+  appSource: 'dashboard' | 'env' | null;
   webhookUrl: string | null;
   llmConfigured: boolean;
 }
@@ -119,6 +122,7 @@ export function useApi() {
       testLlm: (slot: 'primary' | 'fallback' | 'embeddings') =>
         request<TestLlmResponse>('POST', '/api/settings/llm/test', { slot }),
       setupStatus: () => request<SetupStatus>('GET', '/api/setup/status'),
+      resetGithubApp: () => request<{ removedInstallations: number }>('DELETE', '/api/setup/github-app'),
       githubAppManifest: () =>
         request<{ postUrl: string; manifest: Record<string, unknown> }>('POST', '/api/setup/github-app'),
       reviewEvents: (id: string) =>

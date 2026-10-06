@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthGuard, CurrentUser } from '../auth/auth.guard.js';
 import type { AuthUser } from '../auth/auth.guard.js';
@@ -21,6 +21,16 @@ export class GithubController {
   @UseGuards(AuthGuard)
   setupStatus() {
     return this.github.setupStatus();
+  }
+
+  /**
+   * Forget the current GitHub App (and its connected repos) to create a new one, e.g. under another
+   * GitHub account. Demo limitation: any signed-in user can do this (single-tenant install).
+   */
+  @Delete('setup/github-app')
+  @UseGuards(AuthGuard)
+  resetApp() {
+    return this.github.resetApp();
   }
 
   /** Step 1 of one-click setup: the manifest the browser submits to GitHub. */

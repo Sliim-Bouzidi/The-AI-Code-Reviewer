@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { App } from '@octokit/app';
 import {
   clearGithubAppCache, eq, getGithubAppConfig, getLlmEnv, githubApp, inArray, installations, repositories, requireGithubAppConfig,
@@ -59,12 +59,52 @@ export class GithubService {
 
   async setupStatus() {
     const config = await getGithubAppConfig(this.db);
+    const [row] = await this.db.select({ id: githubApp.id }).from(githubApp).where(eq(githubApp.id, 'default'));
+    // Who owns the app matters: a private GitHub App can only be installed on its owner's account,
+    // so the dashboard shows it (the app was created by whoever was logged into GitHub at the time).
+    let appOwner: string | null = null;
+    let appUrl: string | null = null;
+    if (config) {
+      try {
+        const { data } = await (await this.getApp()).octokit.request('GET /app');
+        appOwner = (data?.owner as { login?: string } | null)?.login ?? null;
+        appUrl = data?.html_url ?? null;
+      } catch {
+        // GitHub unreachable or credentials revoked: the rest of the status is still useful
+      }
+    }
     return {
       githubAppConfigured: !!config,
       appSlug: config?.slug || null,
+      appOwner,
+      appUrl,
+      // 'env' = GITHUB_APP_* in .env (cannot be reset from the dashboard)
+      appSource: row ? ('dashboard' as const) : config ? ('env' as const) : null,
       webhookUrl: this.webhookUrl(),
       llmConfigured: llmConfigured(await getLlmEnv(this.db)),
     };
+  }
+
+  /**
+   * Forgets the GitHub App created from the dashboard, so a new one can be created, e.g. while logged
+   * into a different GitHub account. Its installations (and their repos and reviews) are removed too:
+   * they belong to the old app and cannot be used with a new one. The app itself stays on GitHub;
+   * delete it there by hand if it is no longer wanted.
+   */
+  async resetApp(): Promise<{ removedInstallations: number }> {
+    const [row] = await this.db.select({ id: githubApp.id }).from(githubApp).where(eq(githubApp.id, 'default'));
+    if (!row) {
+      throw new BadRequestException(
+        (await getGithubAppConfig(this.db))
+          ? 'This GitHub App comes from the GITHUB_APP_* settings in .env. Remove them there and restart to start over.'
+          : 'No GitHub App is set up.',
+      );
+    }
+    const removed = await this.db.delete(installations).returning({ id: installations.id });
+    await this.db.delete(githubApp).where(eq(githubApp.id, 'default'));
+    clearGithubAppCache();
+    this.app = null;
+    return { removedInstallations: removed.length };
   }
 
   // ---- one-click GitHub App creation (GitHub "manifest" flow)

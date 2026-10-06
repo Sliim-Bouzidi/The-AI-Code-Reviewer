@@ -49,7 +49,7 @@ export function ConnectGithubButton({ label }: { label?: string }) {
       }}
     >
       <IconBrandGithub />
-      {label ?? (needsApp ? 'Create GitHub App & connect' : 'Connect GitHub')}
+      {needsApp ? 'Create GitHub App & connect' : (label ?? 'Connect GitHub')}
     </Button>
   );
 }

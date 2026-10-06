@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConnectGithubButton } from '@/components/connect-github';
+import { GithubAppCard } from '@/components/github-app-card';
 import PageContainer from '@/components/layout/page-container';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
 import { IndexStatusBadge } from '@/components/status';
@@ -51,6 +52,7 @@ export default function ReposPage() {
       description='Repositories the GitHub App is installed on. Turn reviews on to have new pull requests reviewed.'
       action={<ConnectGithubButton label='Add repositories' />}
     >
+      <GithubAppCard />
       {repos.isError ? (
         <LoadError error={repos.error} />
       ) : repos.isPending ? (
