@@ -91,6 +91,8 @@ export const RepoSchema = z.object({
   lastIndexedSha: z.string().nullable(),
   /** Progress text while indexing ("Embedding 120/620 chunks"), or why the last index failed. */
   indexProgress: z.string().nullable(),
+  /** "provider:model" the index was built with (null for older indexes). */
+  embeddingModel: z.string().nullable(),
 });
 export type Repo = z.infer<typeof RepoSchema>;
 
@@ -177,7 +179,9 @@ export const RulesResponseSchema = z.object({
 export type RulesResponse = z.infer<typeof RulesResponseSchema>;
 
 // ---------- AI providers (dashboard settings) ----------
-export const LlmProviderNameSchema = z.enum(['gemini', 'openrouter', 'openai']);
+/** Free tiers: gemini, openrouter, openai (= OpenAI-compatible hosts). Paid: anthropic (Claude), openai-api (GPT). */
+export const LlmProviderNameSchema = z.enum(['gemini', 'openrouter', 'openai', 'anthropic', 'openai-api']);
+export const EmbeddingProviderNameSchema = z.enum(['gemini', 'openai-api']);
 export type LlmProviderName = z.infer<typeof LlmProviderNameSchema>;
 
 /**
@@ -190,11 +194,15 @@ export const UpdateLlmSettingsSchema = z.object({
   openrouterApiKey: optionalText(300),
   openaiCompatBaseUrl: z.union([z.literal(''), z.string().trim().url().max(300)]).optional(),
   openaiCompatApiKey: optionalText(300),
+  anthropicApiKey: optionalText(300),
+  openaiApiKey: optionalText(300),
   llmProvider: z.union([z.literal(''), LlmProviderNameSchema]).optional(),
   llmModel: optionalText(200),
   llmFallbackProvider: z.union([z.literal(''), LlmProviderNameSchema]).optional(),
   llmFallbackModel: optionalText(200),
   embeddingModel: optionalText(200),
+  embeddingProvider: z.union([z.literal(''), EmbeddingProviderNameSchema]).optional(), // '' = automatic
+  openaiEmbeddingModel: optionalText(200),
 });
 export type UpdateLlmSettings = z.infer<typeof UpdateLlmSettingsSchema>;
 
@@ -211,15 +219,23 @@ export interface LlmSlotStatus {
   configured: boolean;
 }
 export interface LlmSettingsResponse {
-  keys: { gemini: LlmKeyStatus; openrouter: LlmKeyStatus; openai: LlmKeyStatus & { baseUrl: string | null } };
+  keys: {
+    gemini: LlmKeyStatus;
+    openrouter: LlmKeyStatus;
+    openai: LlmKeyStatus & { baseUrl: string | null }; // OpenAI-compatible host
+    anthropic: LlmKeyStatus;
+    openaiApi: LlmKeyStatus;
+  };
   choice: {
     llmProvider: string | null;
     llmModel: string | null;
     llmFallbackProvider: string | null;
     llmFallbackModel: string | null;
     embeddingModel: string | null;
+    embeddingProvider: string | null; // null = automatic
+    openaiEmbeddingModel: string | null;
   };
-  active: { primary: LlmSlotStatus; fallback: LlmSlotStatus; embeddings: LlmSlotStatus };
+  active: { primary: LlmSlotStatus; fallback: LlmSlotStatus; embeddings: LlmSlotStatus & { id: string | null } };
   /** true when this user must bring their own keys (the server's keys are not shared with them). */
   ownKeysRequired: boolean;
 }

@@ -22,10 +22,34 @@ import { errorMessage, useApi } from '@/lib/api';
 type Slot = 'primary' | 'fallback' | 'embeddings';
 
 const PROVIDER_OPTIONS: SelectOption[] = [
-  { value: 'gemini', label: 'Google Gemini', hint: 'Free key, ~20 reviews/day' },
-  { value: 'openrouter', label: 'OpenRouter', hint: 'Free models end in :free' },
-  { value: 'openai', label: 'OpenAI-compatible', hint: 'NVIDIA NIM, Groq, Cerebras…' },
+  { value: 'gemini', label: 'Google Gemini', hint: 'Free tier · ~20 reviews/day' },
+  { value: 'openrouter', label: 'OpenRouter', hint: 'Free tier · models ending in :free' },
+  { value: 'openai', label: 'OpenAI-compatible', hint: 'Free tier · NVIDIA NIM, Groq, Cerebras…' },
+  { value: 'anthropic', label: 'Anthropic Claude', hint: 'Paid · your Anthropic API key' },
+  { value: 'openai-api', label: 'OpenAI (GPT)', hint: 'Paid · your OpenAI API key' },
 ];
+
+const EMBEDDING_OPTIONS: SelectOption[] = [
+  { value: '', label: 'Automatic', hint: 'Gemini if its key is saved, otherwise OpenAI' },
+  { value: 'gemini', label: 'Google Gemini', hint: 'Free tier' },
+  { value: 'openai-api', label: 'OpenAI', hint: 'Paid · text-embedding-3' },
+];
+
+/** Where each provider hands out keys. */
+const KEY_URLS = {
+  gemini: 'https://aistudio.google.com/apikey',
+  openrouter: 'https://openrouter.ai/keys',
+  anthropic: 'https://console.anthropic.com/settings/keys',
+  openaiApi: 'https://platform.openai.com/api-keys',
+};
+
+function KeyLink({ href, children = 'Get a key' }: { href: string; children?: React.ReactNode }) {
+  return (
+    <a href={href} target='_blank' rel='noreferrer' className='inline-flex items-center gap-1 text-xs font-medium underline-offset-4 hover:underline'>
+      {children} <IconExternalLink className='size-3.5' />
+    </a>
+  );
+}
 
 /** Ready-made settings for popular OpenAI-compatible free tiers (see freellm.net). */
 const PRESETS = [
@@ -94,13 +118,14 @@ function ActiveRow({ title, hint, slot, status }: { title: string; hint: string;
 
 /** Paste a key; it is sent once and never shown again. */
 function KeyField({
-  id, label, status, field, provider, save, saving, help,
+  id, label, status, field, provider, save, saving, help, keyUrl,
 }: {
   id: string;
   label: string;
+  keyUrl?: string;
   status: LlmKeyStatus;
-  field: 'geminiApiKey' | 'openrouterApiKey' | 'openaiCompatApiKey';
-  provider: 'gemini' | 'openrouter' | 'openai';
+  field: 'geminiApiKey' | 'openrouterApiKey' | 'openaiCompatApiKey' | 'anthropicApiKey' | 'openaiApiKey';
+  provider: 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'openai-api';
   save: (body: UpdateLlmSettings) => void;
   saving: boolean;
   help: React.ReactNode;
@@ -119,7 +144,10 @@ function KeyField({
   return (
     <div className='flex flex-col gap-2'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
-        <Label htmlFor={id}>{label}</Label>
+        <div className='flex items-center gap-3'>
+          <Label htmlFor={id}>{label}</Label>
+          {keyUrl && <KeyLink href={keyUrl} />}
+        </div>
         <SourceBadge status={status} />
       </div>
       <form
@@ -168,13 +196,18 @@ function KeyField({
 
 function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: (b: UpdateLlmSettings) => void; saving: boolean }) {
   // refetch model lists when a key or the base URL changes
-  const refreshKey = [data.keys.gemini.last4, data.keys.openrouter.last4, data.keys.openai.last4, data.keys.openai.baseUrl].join('|');
+  const refreshKey = [
+    data.keys.gemini.last4, data.keys.openrouter.last4, data.keys.openai.last4, data.keys.openai.baseUrl,
+    data.keys.anthropic.last4, data.keys.openaiApi.last4,
+  ].join('|');
   const [form, setForm] = React.useState(() => ({
     llmProvider: data.choice.llmProvider ?? 'gemini',
     llmModel: data.choice.llmModel ?? '',
     llmFallbackProvider: data.choice.llmFallbackProvider ?? '',
     llmFallbackModel: data.choice.llmFallbackModel ?? '',
     embeddingModel: data.choice.embeddingModel ?? '',
+    embeddingProvider: data.choice.embeddingProvider ?? '',
+    openaiEmbeddingModel: data.choice.openaiEmbeddingModel ?? '',
   }));
   const pick = (k: keyof typeof form) => (value: string) => setForm((f) => ({ ...f, [k]: value }));
   // switching provider clears the model: a Gemini model name means nothing to Groq
@@ -182,6 +215,8 @@ function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: 
     setForm((f) => (f[k] === value ? f : { ...f, [k]: value, [model]: '' }));
   // "Default" fallback = the other of gemini/openrouter, like the worker
   const fallbackProvider = form.llmFallbackProvider || (form.llmProvider === 'gemini' ? 'openrouter' : 'gemini');
+  // "Automatic" embeddings = whatever the server resolved (Gemini when its key is there, else OpenAI)
+  const embeddingProvider = form.embeddingProvider || (data.active.embeddings.provider === 'openai' ? 'openai-api' : 'gemini');
   return (
     <form
       className='grid gap-4 md:grid-cols-2'
@@ -210,8 +245,27 @@ function ModelChoice({ data, save, saving }: { data: LlmSettingsResponse; save: 
         </div>
       </div>
       <div className='flex flex-col gap-2'>
-        <Label htmlFor='embedding-model'>Indexing model (Gemini embeddings)</Label>
-        <ModelCombobox id='embedding-model' provider='gemini' kind='embedding' value={form.embeddingModel} onChange={pick('embeddingModel')} refreshKey={refreshKey} />
+        <Label htmlFor='embedding-provider'>Indexing (embeddings)</Label>
+        <div className='flex items-start gap-2'>
+          <Select id='embedding-provider' value={form.embeddingProvider} onValueChange={pick('embeddingProvider')} options={EMBEDDING_OPTIONS} />
+          {embeddingProvider === 'openai-api' ? (
+            <ModelCombobox
+              aria-label='OpenAI embedding model'
+              provider='openai-api'
+              kind='embedding'
+              value={form.openaiEmbeddingModel}
+              onChange={pick('openaiEmbeddingModel')}
+              refreshKey={refreshKey}
+              placeholder='text-embedding-3-small (default)'
+            />
+          ) : (
+            <ModelCombobox id='embedding-model' provider='gemini' kind='embedding' value={form.embeddingModel} onChange={pick('embeddingModel')} refreshKey={refreshKey} />
+          )}
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          Embeddings come from Gemini (free) or OpenAI (paid); Claude has no embedding model. Changing it means re-indexing your
+          repositories.
+        </p>
       </div>
       <div className='flex items-end justify-end'>
         <Button type='submit' disabled={saving}>Save models</Button>
@@ -255,9 +309,9 @@ export default function ProvidersPage() {
               <IconKey />
               <AlertTitle>Add your own API key to start reviewing</AlertTitle>
               <AlertDescription>
-                Reviews and indexing of your repositories run on your own AI keys. Free options: a Gemini key (also needed for
-                indexing) from aistudio.google.com, or a Groq key from console.groq.com. Paste it under “API keys” below, pick the
-                models, then press “Test”.
+                Reviews and indexing of your repositories run on your own AI keys. The quickest free start is a Gemini key: it
+                reviews and indexes. Already paying for Claude or OpenAI? Add that key under “Paid keys”. Then pick the models
+                below and press “Test”.
               </AlertDescription>
             </Alert>
           )}
@@ -269,14 +323,17 @@ export default function ProvidersPage() {
             <CardContent>
               <ActiveRow title='Main reviewer' hint='Reviews every changed file.' slot='primary' status={d!.active.primary} />
               <ActiveRow title='Fallback' hint='Takes over when the main one fails (quota, outage).' slot='fallback' status={d!.active.fallback} />
-              <ActiveRow title='Indexing' hint='Embeddings for codebase search and review context (Gemini only).' slot='embeddings' status={d!.active.embeddings} />
+              <ActiveRow title='Indexing' hint='Embeddings for codebase search and review context (Gemini or OpenAI).' slot='embeddings' status={d!.active.embeddings} />
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>API keys</CardTitle>
-              <CardDescription>Keys are write-only: after saving, only the last 4 characters are shown.</CardDescription>
+              <CardTitle>Free tier keys</CardTitle>
+              <CardDescription>
+                No credit card needed; daily or per-minute limits apply. Keys are write-only: after saving, only the last 4
+                characters are shown.
+              </CardDescription>
             </CardHeader>
             <CardContent className='flex flex-col gap-6'>
               <KeyField
@@ -284,34 +341,25 @@ export default function ProvidersPage() {
                 label='Google Gemini'
                 field='geminiApiKey'
                 provider='gemini'
+                keyUrl={KEY_URLS.gemini}
                 status={d!.keys.gemini}
                 save={save}
                 saving={update.isPending}
-                help={
-                  <>
-                    Needed for indexing. Free key at{' '}
-                    <a className='underline underline-offset-4' href='https://aistudio.google.com/apikey' target='_blank' rel='noreferrer'>
-                      aistudio.google.com
-                    </a>{' '}
-                    (about 20 review calls a day on the free tier).
-                  </>
-                }
+                help='Reviews and indexing (embeddings). About 20 review calls and 1,000 embeddings a day on the free tier; the free models are the Flash ones.'
               />
               <KeyField
                 id='openrouter-key'
                 label='OpenRouter'
                 field='openrouterApiKey'
                 provider='openrouter'
+                keyUrl={KEY_URLS.openrouter}
                 status={d!.keys.openrouter}
                 save={save}
                 saving={update.isPending}
                 help={
                   <>
-                    Free models end in <code className='font-mono'>:free</code>. Key at{' '}
-                    <a className='underline underline-offset-4' href='https://openrouter.ai/keys' target='_blank' rel='noreferrer'>
-                      openrouter.ai/keys
-                    </a>
-                    .
+                    Hundreds of models; the free ones end in <code className='font-mono'>:free</code> (the model list shows only those
+                    unless you untick “Free models only”). Reviews only, no embeddings.
                   </>
                 }
               />
@@ -387,6 +435,40 @@ export default function ProvidersPage() {
                   help='The key for the base URL above.'
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Paid keys</CardTitle>
+              <CardDescription>
+                Already paying for one of these? Their models are usually stronger, and usage is billed to your own account by
+                the provider.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='flex flex-col gap-6'>
+              <KeyField
+                id='anthropic-key'
+                label='Anthropic (Claude)'
+                field='anthropicApiKey'
+                provider='anthropic'
+                keyUrl={KEY_URLS.anthropic}
+                status={d!.keys.anthropic}
+                save={save}
+                saving={update.isPending}
+                help='Claude models for reviews. Claude has no embedding model, so indexing still needs a Gemini or OpenAI key.'
+              />
+              <KeyField
+                id='openai-api-key'
+                label='OpenAI (GPT)'
+                field='openaiApiKey'
+                provider='openai-api'
+                keyUrl={KEY_URLS.openaiApi}
+                status={d!.keys.openaiApi}
+                save={save}
+                saving={update.isPending}
+                help='GPT models for reviews, and embeddings for indexing (used automatically when no Gemini key is saved).'
+              />
             </CardContent>
           </Card>
 

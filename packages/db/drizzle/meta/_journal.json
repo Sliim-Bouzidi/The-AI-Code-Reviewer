@@ -57,6 +57,13 @@
       "when": 1791374268414,
       "tag": "0007_glamorous_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791378830112,
+      "tag": "0008_omniscient_ultragirl",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ const repoColumns = {
   indexStatus: repositories.indexStatus,
   lastIndexedSha: repositories.lastIndexedSha,
   indexProgress: repositories.indexProgress,
+  embeddingModel: repositories.embeddingModel,
 };
 
 /** Every repo lookup goes through here so a user only ever sees repos of their own installations. */

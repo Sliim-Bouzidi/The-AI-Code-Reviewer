@@ -9,11 +9,15 @@ export const LLM_SETTING_ENV = {
   openrouterApiKey: 'OPENROUTER_API_KEY',
   openaiCompatBaseUrl: 'OPENAI_COMPAT_BASE_URL',
   openaiCompatApiKey: 'OPENAI_COMPAT_API_KEY',
+  anthropicApiKey: 'ANTHROPIC_API_KEY',
+  openaiApiKey: 'OPENAI_API_KEY',
   llmProvider: 'LLM_PROVIDER',
   llmModel: 'LLM_MODEL',
   llmFallbackProvider: 'LLM_FALLBACK_PROVIDER',
   llmFallbackModel: 'LLM_FALLBACK_MODEL',
   embeddingModel: 'EMBEDDING_MODEL',
+  embeddingProvider: 'EMBEDDING_PROVIDER',
+  openaiEmbeddingModel: 'OPENAI_EMBEDDING_MODEL',
 } as const;
 
 export type LlmSettingField = keyof typeof LLM_SETTING_ENV;
@@ -21,7 +25,7 @@ export type LlmSettingsRow = typeof llmSettings.$inferSelect;
 type SettingsValues = Partial<Record<LlmSettingField, string | null>>;
 
 /** The secret fields: the server's env values for these are never handed to other users unless shared. */
-export const LLM_KEY_FIELDS = ['geminiApiKey', 'openrouterApiKey', 'openaiCompatApiKey'] as const satisfies readonly LlmSettingField[];
+export const LLM_KEY_FIELDS = ['geminiApiKey', 'openrouterApiKey', 'openaiCompatApiKey', 'anthropicApiKey', 'openaiApiKey'] as const satisfies readonly LlmSettingField[];
 
 /**
  * The AI keys in the server's env serve only the GitHub App admin (who created the app, usually the

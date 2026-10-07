@@ -56,6 +56,7 @@ function retryDelayMs(err: LlmError): number {
 }
 
 export class GeminiEmbedder implements EmbeddingProvider {
+  readonly name = 'gemini';
   constructor(
     private readonly apiKey: string,
     readonly model: string,

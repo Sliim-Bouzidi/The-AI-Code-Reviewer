@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { and, codeChunks, eq, inArray, installations, notInArray, repoSettings, repositories } from '@codereview/db';
+import { embedderId } from '@codereview/llm';
 import type { IndexJobData } from '@codereview/shared';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
@@ -39,8 +40,19 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
   if (!row) return log('index', 'repo missing', { repoId: job.repoId });
   if (!embedder) {
     await db.update(repositories).set({ indexStatus: 'failed' }).where(eq(repositories.id, job.repoId));
-    throw new Error(`Embeddings are not set up for this account: add a Gemini API key on the dashboard's "AI providers" page.`);
+    throw new Error(`Embeddings are not set up for this account: add a Gemini (free) or OpenAI key on the dashboard's "AI providers" page.`);
   }
+
+  // Vectors from different embedding models cannot be compared. When the user switched model, the
+  // old index is dropped and rebuilt in full (older indexes without a recorded model were Gemini's).
+  const modelId = embedderId(embedder);
+  const sameModel = row.repo.embeddingModel ? row.repo.embeddingModel === modelId : embedder.name === 'gemini';
+  if (!sameModel) {
+    await db.delete(codeChunks).where(eq(codeChunks.repoId, job.repoId));
+    log('index', 'embedding model changed: full re-index', { repoId: job.repoId, model: modelId });
+  }
+  await db.update(repositories).set({ embeddingModel: modelId }).where(eq(repositories.id, job.repoId));
+  const paths = sameModel ? job.paths : undefined;
 
   // shown under the status badge on the Repositories page
   const progress = (text: string | null) =>
@@ -69,10 +81,10 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
     const known = new Map(existing.map((e) => [e.contentHash, e.embedding]));
 
     // incremental (after a push): only the listed files; full: every file in the repo
-    const incremental = !!job.paths;
+    const incremental = !!paths;
     const candidates: string[] = [];
-    if (job.paths) {
-      for (const p of job.paths) candidates.push(join(dir, p));
+    if (paths) {
+      for (const p of paths) candidates.push(join(dir, p));
     } else {
       for await (const full of walk(dir)) candidates.push(full);
     }
@@ -121,10 +133,10 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
       }
       // drop the previous rows: all of the repo (full) or only the touched files (incremental)
       const scope = incremental
-        ? inArray(codeChunks.filePath, [...new Set([...(job.paths ?? []), ...(job.removed ?? [])])])
+        ? inArray(codeChunks.filePath, [...new Set([...(paths ?? []), ...(job.removed ?? [])])])
         : undefined;
       const notKept = keep.length > 0 ? notInArray(codeChunks.id, keep) : undefined;
-      if (!incremental || (job.paths?.length ?? 0) + (job.removed?.length ?? 0) > 0) {
+      if (!incremental || (paths?.length ?? 0) + (job.removed?.length ?? 0) > 0) {
         await tx.delete(codeChunks).where(and(eq(codeChunks.repoId, job.repoId), scope, notKept));
       }
       await tx

@@ -3,7 +3,7 @@ import {
   canUseEnvLlmKeys, clearLlmSettingsCache, getLlmEnv, getLlmSettingsRow, LLM_KEY_FIELDS, LLM_SETTING_ENV, llmSettings,
 } from '@codereview/db';
 import type { Db, LlmSettingField } from '@codereview/db';
-import { createEmbedderFromEnv, listModels, resolveProviders } from '@codereview/llm';
+import { createEmbedderFromEnv, embedderId, listModels, resolveProviders } from '@codereview/llm';
 import type { LlmProvider, ModelInfo } from '@codereview/llm';
 import { LlmProviderNameSchema, TestLlmBodySchema, UpdateLlmSettingsSchema } from '@codereview/shared';
 import type {
@@ -58,6 +58,8 @@ export class LlmSettingsController {
         gemini: key('geminiApiKey'),
         openrouter: key('openrouterApiKey'),
         openai: { ...key('openaiCompatApiKey'), baseUrl: env.OPENAI_COMPAT_BASE_URL || null },
+        anthropic: key('anthropicApiKey'),
+        openaiApi: key('openaiApiKey'),
       },
       choice: {
         llmProvider: env.LLM_PROVIDER || 'gemini',
@@ -65,11 +67,18 @@ export class LlmSettingsController {
         llmFallbackProvider: env.LLM_FALLBACK_PROVIDER || null,
         llmFallbackModel: env.LLM_FALLBACK_MODEL || null,
         embeddingModel: env.EMBEDDING_MODEL || null,
+        embeddingProvider: env.EMBEDDING_PROVIDER || null,
+        openaiEmbeddingModel: env.OPENAI_EMBEDDING_MODEL || null,
       },
       active: {
         primary: slot(primary, env.LLM_MODEL),
         fallback: slot(fallback, env.LLM_FALLBACK_MODEL),
-        embeddings: { provider: embedder ? 'gemini' : null, model: env.EMBEDDING_MODEL || null, configured: !!embedder },
+        embeddings: {
+          provider: embedder?.name ?? null,
+          model: embedder?.model ?? null,
+          configured: !!embedder,
+          id: embedder ? embedderId(embedder) : null,
+        },
       },
       ownKeysRequired: !useEnvKeys,
     };
@@ -103,7 +112,7 @@ export class LlmSettingsController {
     @Query('kind') kind: string | undefined,
   ): Promise<{ models: ModelInfo[] }> {
     const name = LlmProviderNameSchema.safeParse(provider);
-    if (!name.success) throw new BadRequestException('provider must be gemini, openrouter or openai');
+    if (!name.success) throw new BadRequestException(`provider must be one of ${LlmProviderNameSchema.options.join(', ')}`);
     const env = await getLlmEnv(this.db, user.id);
     try {
       return { models: await listModels(env, name.data, kind === 'embedding' ? 'embedding' : 'chat') };
@@ -126,12 +135,14 @@ export class LlmSettingsController {
 
     if (body.slot === 'embeddings') {
       const embedder = createEmbedderFromEnv(env);
-      if (!embedder) return done(false, null, null, 'Not configured: add your Gemini key and pick an embedding model.');
+      if (!embedder) {
+        return done(false, null, null, 'Not configured: add a Gemini key (free) or an OpenAI key (paid). Claude has no embedding model.');
+      }
       try {
         const [vector] = await embedder.embed(['hello'], 'query');
-        return done(true, 'gemini', embedder.model, `Returned a ${vector?.length ?? 0}-dimension vector.`);
+        return done(true, embedder.name, embedder.model, `Returned a ${vector?.length ?? 0}-dimension vector.`);
       } catch (err) {
-        return done(false, 'gemini', embedder.model, short(err));
+        return done(false, embedder.name, embedder.model, short(err));
       }
     }
 

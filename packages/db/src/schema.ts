@@ -36,6 +36,8 @@ export const repositories = pgTable('repositories', {
   enabled: boolean('enabled').notNull().default(false),
   indexStatus: text('index_status').$type<IndexStatus>().notNull().default('none'),
   lastIndexedSha: text('last_indexed_sha'),
+  // "provider:model" the index was built with: vectors from another embedder cannot be searched
+  embeddingModel: text('embedding_model'),
   // human-readable progress while indexing ("Embedding 120/620"), or the reason it failed
   indexProgress: text('index_progress'),
 });
@@ -178,11 +180,15 @@ export const llmSettings = pgTable('llm_settings', {
   openrouterApiKey: text('openrouter_api_key'),
   openaiCompatBaseUrl: text('openai_compat_base_url'),
   openaiCompatApiKey: text('openai_compat_api_key'),
+  anthropicApiKey: text('anthropic_api_key'), // paid: Claude
+  openaiApiKey: text('openai_api_key'), // paid: OpenAI's own API (GPT, embeddings)
   llmProvider: text('llm_provider'),
   llmModel: text('llm_model'),
   llmFallbackProvider: text('llm_fallback_provider'),
   llmFallbackModel: text('llm_fallback_model'),
-  embeddingModel: text('embedding_model'),
+  embeddingModel: text('embedding_model'), // Gemini embedding model
+  embeddingProvider: text('embedding_provider'), // gemini | openai-api; null = automatic
+  openaiEmbeddingModel: text('openai_embedding_model'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

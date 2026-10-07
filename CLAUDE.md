@@ -536,6 +536,12 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - **GitHub App admin:** `github_app.created_by` (the user who created it; backfilled to the first connected user). Only the admin may recreate or replace the app (`DELETE /api/setup/github-app`, `POST /api/setup/github-app` when one exists); `GET /api/setup/status` returns `isAdmin`.
 - **Re-run review:** `POST /api/reviews/:id/rerun` reviews a PR again on its latest known commit (trigger `manual`, posted on GitHub like a webhook review; one at a time per PR). Button on the review page, icon on each PR row of the reviews table.
 
+### Free vs paid providers, embeddings choice (added 2026-10-07)
+- `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` also accept `anthropic` (Claude, `ANTHROPIC_API_KEY`, through the official `@anthropic-ai/sdk`, no `temperature`, server-side refusal fallback on the newest models) and `openai-api` (OpenAI's own API, `OPENAI_API_KEY`). `openai` still means "any OpenAI-compatible host".
+- Embeddings: `EMBEDDING_PROVIDER` = `gemini` | `openai-api` | empty (automatic: Gemini when its key and `EMBEDDING_MODEL` are set, else OpenAI). OpenAI uses `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-small`) with `dimensions` = `EMBEDDING_DIM`. Claude has no embedding model.
+- `repositories.embedding_model` records the `provider:model` an index was built with (migration 0008). Indexing with another embedder drops the old chunks and rebuilds in full; review context and search skip/refuse a mismatched index; the dashboard shows "re-index".
+- Dashboard: keys split into "Free tier" and "Paid" with "Get a key" links; model pickers list only free models when a provider mixes both ("Free models only"); Index is disabled until an embedding provider is configured.
+
 ### Not built yet
 - Langfuse/Sentry.
 
@@ -546,8 +552,8 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - Extra route `GET /api/findings/:id` (for the MCP `explain_finding` tool).
 - Extra env vars: `GITHUB_APP_SLUG`, `WEB_URL`, `LLM_FALLBACK_MODEL`, `LLM_MIN_INTERVAL_MS`, `SEMGREP_CONFIG`, `MCP_PORT`, `SHARED_LLM_KEYS`, `CORS_ORIGINS`.
 - The index queue is named `index-repo` (BullMQ queue names), the job is still "index_repo" conceptually.
-- LLM providers are called over HTTP directly instead of through their SDKs.
-- Besides Gemini and OpenRouter, `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` accept `openai`: any OpenAI-compatible endpoint (`OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`), e.g. NVIDIA NIM or Groq, whose free tiers are far larger than Gemini's ~20 review calls/day. Embeddings still use Gemini only.
+- LLM providers are called over HTTP directly instead of through their SDKs, except Claude, which uses the official Anthropic SDK.
+- Besides Gemini and OpenRouter, `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` accept `openai`: any OpenAI-compatible endpoint (`OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`), e.g. NVIDIA NIM or Groq, whose free tiers are far larger than Gemini's ~20 review calls/day.
 - `pnpm db:migrate` is the root alias for `pnpm --filter db migrate`.
 - `GEMINI_BASE_URL` (optional) points the Gemini provider at another host; used only to replay recorded answers in tests.
 

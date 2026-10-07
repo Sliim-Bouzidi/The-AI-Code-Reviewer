@@ -1,11 +1,12 @@
 import {
-  Body, Controller, Get, Inject, NotFoundException, Param, ParseIntPipe, Post, Put, ServiceUnavailableException, UseGuards,
+  BadRequestException, Body, ConflictException, Controller, Get, Inject, NotFoundException, Param, ParseIntPipe, Post, Put, ServiceUnavailableException,
+  UseGuards,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { and, codeChunks, cosineDistance, desc, eq, findings, getLlmEnv, pullRequests, repositories, reviews } from '@codereview/db';
 import type { Db } from '@codereview/db';
-import { createEmbedderFromEnv } from '@codereview/llm';
+import { createEmbedderFromEnv, embedderId } from '@codereview/llm';
 import {
   DEFAULT_JOB_OPTIONS, EnableRepoBodySchema, QUEUES, SearchBodySchema, UpdateRepoSettingsSchema,
 } from '@codereview/shared';
@@ -44,6 +45,10 @@ export class ReposController {
   @Post(':id/index')
   async index(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const repo = await this.repos.get(user.id, id);
+    // fail here, not minutes later in the worker: indexing needs an embedding provider
+    if (!createEmbedderFromEnv(await getLlmEnv(this.db, user.id))) {
+      throw new BadRequestException('Indexing needs embeddings: add a Gemini key (free) or an OpenAI key on the "AI providers" page.');
+    }
     const indexProgress = 'Waiting for the worker';
     await this.db.update(repositories).set({ indexStatus: 'indexing', indexProgress }).where(eq(repositories.id, repo.id));
     await this.indexQueue.add('index', { repoId: repo.id }, DEFAULT_JOB_OPTIONS);
@@ -79,7 +84,12 @@ export class ReposController {
     const repo = await this.repos.get(user.id, id);
     // the user's own embedding settings (the same model their repo was indexed with)
     const embedder = createEmbedderFromEnv(await getLlmEnv(this.db, user.id));
-    if (!embedder) throw new ServiceUnavailableException('Embeddings are not set up: add a Gemini key on the "AI providers" page');
+    if (!embedder) {
+      throw new ServiceUnavailableException('Embeddings are not set up: add a Gemini (free) or OpenAI key on the "AI providers" page');
+    }
+    if (repo.embeddingModel && repo.embeddingModel !== embedderId(embedder)) {
+      throw new ConflictException('This repository was indexed with another embedding model: re-index it first');
+    }
     const [vector] = await embedder.embed([body.query], 'query');
     const distance = cosineDistance(codeChunks.embedding, vector!);
     const rows = await this.db

@@ -19,6 +19,7 @@ export interface LlmProvider {
 }
 
 export interface EmbeddingProvider {
+  readonly name: string; // 'gemini' | 'openai'
   readonly model: string;
   readonly dim: number;
   embed(texts: string[], kind: 'document' | 'query'): Promise<number[][]>;

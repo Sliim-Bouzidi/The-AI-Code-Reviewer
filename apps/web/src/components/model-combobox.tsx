@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils';
 /**
  * Model picker: asks the provider which models the saved key can use and offers them as a
  * searchable list. Typing a name that is not in the list is still allowed (new/preview models).
- * `refreshKey` changes when keys or the base URL change, so the list is fetched again.
+ * When a provider mixes free and paid models (OpenRouter, Gemini), only the free ones are listed
+ * until "Free models only" is unticked. `refreshKey` changes when keys or the base URL change.
  */
 export function ModelCombobox({
   id,
@@ -41,7 +42,11 @@ export function ModelCombobox({
     staleTime: 5 * 60_000,
     retry: false,
   });
-  const items = models.data?.models ?? [];
+  const all = models.data?.models ?? [];
+  const mixed = all.some((m) => m.free) && all.some((m) => !m.free);
+  const [freeOnly, setFreeOnly] = React.useState(true);
+  // the current choice stays listed even when it is a paid model
+  const items = mixed && freeOnly ? all.filter((m) => m.free || m.id === value) : all;
   const selected = items.find((m) => m.id === value) ?? null;
 
   return (
@@ -102,13 +107,23 @@ export function ModelCombobox({
           </Combobox.Positioner>
         </Combobox.Portal>
       </Combobox.Root>
-      <p className={cn('text-xs', models.isError ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
-        {models.isError
-          ? `Could not load the list (${errorMessage(models.error)}). You can still type a model name.`
-          : models.isSuccess
-            ? `${items.length} model${items.length === 1 ? '' : 's'} available with this key`
-            : ' '}
-      </p>
+      <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-1'>
+        <p className={cn('text-xs', models.isError ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+          {models.isError
+            ? `Could not load the list (${errorMessage(models.error)}). You can still type a model name.`
+            : models.isSuccess
+              ? mixed && freeOnly
+                ? `${items.length} free of ${all.length} models`
+                : `${all.length} model${all.length === 1 ? '' : 's'} available with this key`
+              : ' '}
+        </p>
+        {mixed && (
+          <label className='text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs select-none'>
+            <input type='checkbox' className='accent-emerald-600' checked={freeOnly} onChange={(e) => setFreeOnly(e.target.checked)} />
+            Free models only
+          </label>
+        )}
+      </div>
     </div>
   );
 }

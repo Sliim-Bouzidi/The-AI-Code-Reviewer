@@ -11,6 +11,8 @@ export class OpenAICompatibleProvider implements LlmProvider {
     private readonly baseUrl: string,
     private readonly apiKey: string,
     readonly model: string,
+    /** false for hosts whose reasoning models reject a custom temperature (OpenAI's own API) */
+    private readonly sendTemperature = true,
   ) {}
 
   async generate(input: LlmCallInput): Promise<LlmCallResult> {
@@ -21,7 +23,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
         headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({
           model: this.model,
-          temperature: input.temperature ?? 0.2,
+          ...(this.sendTemperature ? { temperature: input.temperature ?? 0.2 } : {}),
           messages: [
             { role: 'system', content: input.system },
             { role: 'user', content: input.prompt },

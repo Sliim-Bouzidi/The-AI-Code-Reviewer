@@ -1,4 +1,5 @@
-import { and, codeChunks, cosineDistance, eq, inArray, ne } from '@codereview/db';
+import { and, codeChunks, cosineDistance, eq, inArray, ne, repositories } from '@codereview/db';
+import { embedderId } from '@codereview/llm';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
 import { addedText } from './diff.js';
@@ -29,6 +30,9 @@ export async function retrieveContext(
 ): Promise<Map<string, ContextChunk[]>> {
   const result = new Map<string, ContextChunk[]>();
   if (!repoId || !deps.embedder || files.length === 0) return result;
+  // an index built with another embedding model cannot be searched with this one (re-index needed)
+  const [repo] = await deps.db.select({ model: repositories.embeddingModel }).from(repositories).where(eq(repositories.id, repoId));
+  if (repo?.model && repo.model !== embedderId(deps.embedder)) return result;
   try {
     const vectors = await deps.embedder.embed(files.map((f) => addedText(f)), 'query');
     for (const [i, file] of files.entries()) {

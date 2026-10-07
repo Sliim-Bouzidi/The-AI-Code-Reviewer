@@ -1,12 +1,13 @@
 'use client';
 
 import type { Repo } from '@codereview/shared';
-import { IconBrandGithub, IconRefresh } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBrandGithub, IconRefresh } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConnectGithubButton } from '@/components/connect-github';
 import { GithubAppCard } from '@/components/github-app-card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PageContainer from '@/components/layout/page-container';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
 import { IndexStatusBadge } from '@/components/status';
@@ -25,6 +26,10 @@ export default function ReposPage() {
     queryFn: api.repos,
     refetchInterval: (q) => (q.state.data?.some((r) => r.indexStatus === 'indexing') ? 4_000 : false),
   });
+  // indexing needs an embedding provider (Gemini or OpenAI key) on this user's AI providers page
+  const llm = useQuery({ queryKey: ['llm-settings'], queryFn: api.llmSettings });
+  const embeddings = llm.data?.active.embeddings;
+  const canIndex = !!embeddings?.configured;
   const patch = (repo: Repo) =>
     qc.setQueryData<Repo[]>(['repos'], (old) => old?.map((r) => (r.id === repo.id ? { ...r, ...repo } : r)));
 
@@ -53,6 +58,20 @@ export default function ReposPage() {
       action={<ConnectGithubButton label='Add repositories' />}
     >
       <GithubAppCard />
+      {llm.isSuccess && !canIndex && (
+        <Alert>
+          <IconAlertTriangle />
+          <AlertTitle>Indexing is not set up yet</AlertTitle>
+          <AlertDescription>
+            Indexing turns your code into embeddings so reviews understand the wider codebase. It uses Gemini (free key) or
+            OpenAI (paid key); Claude has no embedding model. Add one on{' '}
+            <Link href='/dashboard/providers' className='underline underline-offset-4'>
+              AI providers
+            </Link>
+            , then click Index. Reviews work without it, with less context.
+          </AlertDescription>
+        </Alert>
+      )}
       {repos.isError ? (
         <LoadError error={repos.error} />
       ) : repos.isPending ? (
@@ -96,6 +115,11 @@ export default function ReposPage() {
                     <TableCell className='text-muted-foreground font-mono text-xs'>{repo.defaultBranch ?? '-'}</TableCell>
                     <TableCell>
                       <IndexStatusBadge status={repo.indexStatus} />
+                      {repo.indexStatus === 'ready' && repo.embeddingModel && embeddings?.id && repo.embeddingModel !== embeddings.id && (
+                        <div className='mt-1 text-xs text-amber-600 dark:text-amber-400' title={`Indexed with ${repo.embeddingModel}`}>
+                          Embedding model changed: re-index to use it
+                        </div>
+                      )}
                       {repo.indexProgress && repo.indexStatus !== 'none' && (
                         <div
                           title={repo.indexProgress}
@@ -120,7 +144,8 @@ export default function ReposPage() {
                       <Button
                         variant='outline'
                         size='sm'
-                        disabled={repo.indexStatus === 'indexing' || index.isPending}
+                        disabled={!canIndex || repo.indexStatus === 'indexing' || index.isPending}
+                        title={canIndex ? `Embeddings: ${embeddings?.provider} · ${embeddings?.model}` : 'Add a Gemini or OpenAI key on AI providers first'}
                         onClick={() => index.mutate(repo.id)}
                       >
                         <IconRefresh />
