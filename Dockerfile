@@ -18,7 +18,7 @@ COPY apps/mcp/package.json apps/mcp/
 COPY packages/db/package.json packages/db/
 COPY packages/llm/package.json packages/llm/
 COPY packages/shared/package.json packages/shared/
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # ---- build every package and app
 FROM deps AS build
