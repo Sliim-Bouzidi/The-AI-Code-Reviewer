@@ -161,7 +161,7 @@ export default function QualityPage() {
   return (
     <PageContainer
       title='Quality'
-      description='How good is the reviewer? Each run reviews the test cases in evals/ (code with planted bugs and one clean change) with your current AI settings, and scores the answers.'
+      description='How good is your AI setup at reviewing code? A run sends a fixed set of built-in sample changes (not your repositories: code with planted bugs, plus one correct change) through the reviewer with your own AI keys and models, and scores how many bugs it catches. Each run uses some of your AI quota; results are visible only to you.'
       action={
         <Button onClick={() => start.mutate()} disabled={!!active || start.isPending}>
           {active || start.isPending ? <Spinner className='size-4' /> : <IconPlayerPlay />}

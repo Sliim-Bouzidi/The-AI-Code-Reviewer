@@ -20,7 +20,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <OnboardingGate>
       <SidebarProvider defaultOpen={defaultOpen}>
         <AppSidebar />
-        <SidebarInset>
+        {/* min-w-0: a wide table scrolls inside its card instead of stretching the whole page */}
+        <SidebarInset className='min-w-0'>
           <Header />
           {children}
         </SidebarInset>

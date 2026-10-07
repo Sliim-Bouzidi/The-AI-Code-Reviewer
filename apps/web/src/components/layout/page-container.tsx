@@ -12,7 +12,7 @@ export default function PageContainer({
   children: React.ReactNode;
 }) {
   return (
-    <div className='flex flex-1 flex-col gap-4 px-4 pt-2 pb-6 md:px-6 md:pt-4'>
+    <div className='flex min-w-0 flex-1 flex-col gap-4 px-4 pt-2 pb-6 md:px-6 md:pt-4'>
       <div className='flex flex-wrap items-start justify-between gap-4'>
         <div className='min-w-0'>
           <h1 className='truncate text-2xl font-semibold tracking-tight'>{title}</h1>
