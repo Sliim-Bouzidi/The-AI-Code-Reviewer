@@ -6,7 +6,7 @@ import { buildServer } from './server.js';
 
 loadEnv();
 const apiUrl = process.env.CODEREVIEW_API_URL ?? 'http://localhost:4000';
-const port = Number(process.env.MCP_PORT ?? 4100);
+const port = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4100);
 
 /**
  * Streamable HTTP transport at /mcp, stateless: every request gets its own server, authenticated

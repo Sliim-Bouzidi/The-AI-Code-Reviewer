@@ -11,9 +11,13 @@ const app = await NestFactory.create<import('@nestjs/platform-express').NestExpr
   rawBody: true,
 });
 app.useBodyParser('json', { limit: '2mb' }); // diffs sent by the MCP server
-app.enableCors({ origin: process.env.WEB_URL ?? 'http://localhost:3000', credentials: true });
+// WEB_URL is the dashboard; CORS_ORIGINS adds more (comma-separated), e.g. Vercel preview domains
+const origins = [process.env.WEB_URL ?? 'http://localhost:3000', ...(process.env.CORS_ORIGINS?.split(',') ?? [])]
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+app.enableCors({ origin: origins, credentials: true });
 
-const port = Number(process.env.API_PORT ?? 4000);
+const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000); // PORT is set by Railway
 await app.listen(port);
 console.log(`Core API listening on http://localhost:${port}`);
 {

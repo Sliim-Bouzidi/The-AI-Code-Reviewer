@@ -2,6 +2,10 @@
 #   api, worker, web, mcp, migrate, smee
 # syntax=docker/dockerfile:1
 
+# Railway cannot pick a --target, so the LAST stage below is chosen by the SERVICE build arg / variable
+# (api | worker | mcp | web | migrate). docker compose ignores this and uses its own targets.
+ARG SERVICE=api
+
 FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
@@ -59,3 +63,6 @@ FROM node:22-slim AS smee
 RUN npm install -g smee-client
 COPY scripts/smee.mjs /smee.mjs
 CMD ["node", "/smee.mjs"]
+
+# Default stage for builders that do not set a target (Railway).
+FROM ${SERVICE} AS final
