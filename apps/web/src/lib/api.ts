@@ -27,6 +27,7 @@ export interface SetupStatus {
   appSource: 'dashboard' | 'env' | null;
   webhookUrl: string | null;
   llmConfigured: boolean;
+  isAdmin: boolean; // created the GitHub App: only they may recreate it
 }
 
 export interface ReviewEvent {
@@ -109,6 +110,7 @@ export function useApi() {
       reviews: (repoId: string, page = 1, pageSize = 20) =>
         request<PaginatedReviews>('GET', `/api/repos/${repoId}/reviews?page=${page}&pageSize=${pageSize}`),
       review: (id: string) => request<ReviewWithFindings>('GET', `/api/reviews/${id}`),
+      rerunReview: (id: string) => request<{ reviewId: string }>('POST', `/api/reviews/${id}/rerun`),
       installUrl: () => request<{ url: string }>('GET', '/api/github/install-url'),
       notifications: () => request<{ items: AppNotification[]; unread: number }>('GET', '/api/notifications'),
       readNotification: (id: string) => request<void>('POST', `/api/notifications/${id}/read`),

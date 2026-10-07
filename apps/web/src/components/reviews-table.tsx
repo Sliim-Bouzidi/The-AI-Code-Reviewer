@@ -1,5 +1,6 @@
 import type { Review } from '@codereview/shared';
 import Link from 'next/link';
+import { RerunReviewButton } from '@/components/rerun-review-button';
 import { ReviewStatusBadge } from '@/components/status';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,6 +17,7 @@ export function ReviewsTable({ reviews, repoNames }: { reviews: Review[]; repoNa
           <TableHead>Source</TableHead>
           <TableHead className='text-right'>Duration</TableHead>
           <TableHead className='text-right'>When</TableHead>
+          <TableHead className='w-10'><span className='sr-only'>Actions</span></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -41,10 +43,13 @@ export function ReviewsTable({ reviews, repoNames }: { reviews: Review[]; repoNa
               <ReviewStatusBadge status={r.status} />
             </TableCell>
             <TableCell>
-              <Badge variant='secondary'>{r.trigger === 'webhook' ? 'Pull request' : 'MCP'}</Badge>
+              <Badge variant='secondary'>{r.trigger === 'webhook' ? 'Pull request' : r.trigger === 'manual' ? 'Re-run' : 'MCP'}</Badge>
             </TableCell>
             <TableCell className='text-right tabular-nums'>{formatDuration(r.durationMs)}</TableCell>
             <TableCell className='text-muted-foreground text-right whitespace-nowrap'>{timeAgo(r.createdAt)}</TableCell>
+            <TableCell className='py-0 text-right'>
+              {r.prNumber != null && !['queued', 'running'].includes(r.status) && <RerunReviewButton reviewId={r.id} icon />}
+            </TableCell>
           </TableRow>
           );
         })}

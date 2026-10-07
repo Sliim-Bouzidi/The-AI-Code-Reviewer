@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation';
 import * as React from 'react';
 import PageContainer from '@/components/layout/page-container';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
+import { RerunReviewButton } from '@/components/rerun-review-button';
 import { ReviewTimeline } from '@/components/review-timeline';
 import { ReviewStatusBadge, SEVERITY_ORDER, SeverityBadge } from '@/components/status';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -59,6 +60,7 @@ export default function ReviewPage() {
   const repos = useQuery({ queryKey: ['repos'], queryFn: api.repos });
 
   const r = review.data;
+  const canRerun = !!r && r.prNumber != null && !['queued', 'running'].includes(r.status);
   const repo = repos.data?.find((x) => x.id === r?.repoId);
   const counts = SEVERITY_ORDER.map((s) => ({ severity: s, n: r?.findings.filter((f) => f.severity === s).length ?? 0 }))
     .filter((c) => c.n > 0);
@@ -94,6 +96,7 @@ export default function ReviewPage() {
       }
       action={
         <div className='flex items-center gap-3'>
+          {canRerun && <RerunReviewButton reviewId={id} />}
           {repo && r?.prNumber != null && (
             <a
               href={`https://github.com/${repo.fullName}/pull/${r.prNumber}`}

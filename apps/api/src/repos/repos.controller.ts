@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
-import { and, codeChunks, cosineDistance, desc, eq, findings, pullRequests, repositories, reviews } from '@codereview/db';
+import { and, codeChunks, cosineDistance, desc, eq, findings, getLlmEnv, pullRequests, repositories, reviews } from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { createEmbedderFromEnv } from '@codereview/llm';
 import {
@@ -19,8 +19,6 @@ import { ReposService } from './repos.service.js';
 @Controller('api/repos')
 @UseGuards(AuthGuard)
 export class ReposController {
-  private readonly embedder = createEmbedderFromEnv();
-
   constructor(
     @Inject(DB) private readonly db: Db,
     @InjectQueue(QUEUES.INDEX) private readonly indexQueue: Queue<IndexJobData>,
@@ -79,8 +77,10 @@ export class ReposController {
     @Body(new ZodPipe(SearchBodySchema)) body: SearchBody,
   ): Promise<SearchResult[]> {
     const repo = await this.repos.get(user.id, id);
-    if (!this.embedder) throw new ServiceUnavailableException('Embeddings are not configured');
-    const [vector] = await this.embedder.embed([body.query], 'query');
+    // the user's own embedding settings (the same model their repo was indexed with)
+    const embedder = createEmbedderFromEnv(await getLlmEnv(this.db, user.id));
+    if (!embedder) throw new ServiceUnavailableException('Embeddings are not set up: add a Gemini key on the "AI providers" page');
+    const [vector] = await embedder.embed([body.query], 'query');
     const distance = cosineDistance(codeChunks.embedding, vector!);
     const rows = await this.db
       .select({

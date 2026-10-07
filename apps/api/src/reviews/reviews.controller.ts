@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException, Body, ConflictException, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, Res, UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import {
-  and, asc, count, desc, eq, findings, installations, pullRequests, repositories, reviewEvents, reviews,
+  and, asc, count, desc, eq, findings, inArray, installations, pullRequests, repositories, reviewEvents, reviews,
 } from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { CHANNELS, DEFAULT_JOB_OPTIONS, PaginationQuerySchema, QUEUES, ReviewDiffBodySchema } from '@codereview/shared';
@@ -115,6 +117,32 @@ export class ReviewsController {
       .returning({ id: reviews.id });
     await this.reviewQueue.add('review', { reviewId: review!.id, diff: body.diff }, { ...DEFAULT_JOB_OPTIONS, jobId: review!.id });
     return { reviewId: review!.id };
+  }
+
+  /**
+   * The dashboard's "Re-run review": reviews the pull request again on its latest known commit and
+   * posts a fresh review on GitHub. One at a time per PR (each run costs the owner's AI quota).
+   */
+  @Post('reviews/:id/rerun')
+  async rerun(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const review = await this.load(user.id, id); // ownership check
+    if (!review.prId || !review.repoId) {
+      throw new BadRequestException('Only pull request reviews can be re-run. For a local diff, run the MCP review again.');
+    }
+    const [pr] = await this.db.select().from(pullRequests).where(eq(pullRequests.id, review.prId));
+    if (!pr) throw new NotFoundException('Pull request not found');
+    const active = await this.db
+      .select({ id: reviews.id })
+      .from(reviews)
+      .where(and(eq(reviews.prId, pr.id), inArray(reviews.status, ['queued', 'running'])));
+    if (active.length > 0) throw new ConflictException('A review of this pull request is already in progress.');
+
+    const [next] = await this.db
+      .insert(reviews)
+      .values({ prId: pr.id, repoId: review.repoId, headSha: pr.headSha, trigger: 'manual', status: 'queued' })
+      .returning({ id: reviews.id });
+    await this.reviewQueue.add('review', { reviewId: next!.id }, { ...DEFAULT_JOB_OPTIONS, jobId: next!.id });
+    return { reviewId: next!.id };
   }
 
   @Get('reviews/:id/status')

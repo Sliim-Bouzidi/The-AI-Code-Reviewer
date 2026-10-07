@@ -6,7 +6,7 @@ export const CategorySchema = z.enum(['bug', 'security', 'performance', 'style',
 export const FindingSourceSchema = z.enum(['llm', 'semgrep']);
 export const StrictnessSchema = z.enum(['low', 'medium', 'high']);
 export const ReviewStatusSchema = z.enum(['queued', 'running', 'completed', 'failed']);
-export const ReviewTriggerSchema = z.enum(['webhook', 'mcp', 'eval']); // eval = internal review of an eval case
+export const ReviewTriggerSchema = z.enum(['webhook', 'manual', 'mcp', 'eval']); // manual = re-run from the dashboard; eval = internal review of an eval case
 export const IndexStatusSchema = z.enum(['none', 'indexing', 'ready', 'failed']);
 
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -220,6 +220,8 @@ export interface LlmSettingsResponse {
     embeddingModel: string | null;
   };
   active: { primary: LlmSlotStatus; fallback: LlmSlotStatus; embeddings: LlmSlotStatus };
+  /** true when this user must bring their own keys (the server's keys are not shared with them). */
+  ownKeysRequired: boolean;
 }
 
 export const TestLlmBodySchema = z.object({ slot: z.enum(['primary', 'fallback', 'embeddings']) });

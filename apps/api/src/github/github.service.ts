@@ -1,9 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { App } from '@octokit/app';
 import {
-  clearGithubAppCache, eq, getGithubAppConfig, getLlmEnv, githubApp, inArray, installations, repositories, requireGithubAppConfig,
+  clearGithubAppCache, eq, getGithubAppConfig, getLlmEnv, githubApp, inArray, installations, isGithubAppAdmin, repositories,
+  requireGithubAppConfig,
 } from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { llmConfigured } from '@codereview/llm';
@@ -57,7 +58,7 @@ export class GithubService {
     return (process.env.API_PUBLIC_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`).replace(/\/$/, '');
   }
 
-  async setupStatus() {
+  async setupStatus(userId: string) {
     const config = await getGithubAppConfig(this.db);
     const [row] = await this.db.select({ id: githubApp.id }).from(githubApp).where(eq(githubApp.id, 'default'));
     // Who owns the app matters: a private GitHub App can only be installed on its owner's account,
@@ -81,7 +82,9 @@ export class GithubService {
       // 'env' = GITHUB_APP_* in .env (cannot be reset from the dashboard)
       appSource: row ? ('dashboard' as const) : config ? ('env' as const) : null,
       webhookUrl: this.webhookUrl(),
-      llmConfigured: llmConfigured(await getLlmEnv(this.db)),
+      llmConfigured: llmConfigured(await getLlmEnv(this.db, userId)),
+      // only the app's admin may recreate it (that disconnects every user)
+      isAdmin: !config || (await isGithubAppAdmin(this.db, userId)),
     };
   }
 
@@ -106,7 +109,7 @@ export class GithubService {
    * they belong to the old app and cannot be used with a new one. The app itself stays on GitHub;
    * delete it there by hand if it is no longer wanted.
    */
-  async resetApp(): Promise<{ removedInstallations: number }> {
+  async resetApp(userId: string): Promise<{ removedInstallations: number }> {
     const [row] = await this.db.select({ id: githubApp.id }).from(githubApp).where(eq(githubApp.id, 'default'));
     if (!row) {
       throw new BadRequestException(
@@ -115,6 +118,7 @@ export class GithubService {
           : 'No GitHub App is set up.',
       );
     }
+    await this.requireAdmin(userId);
     const removed = await this.db.delete(installations).returning({ id: installations.id });
     await this.db.delete(githubApp).where(eq(githubApp.id, 'default'));
     clearGithubAppCache();
@@ -122,9 +126,17 @@ export class GithubService {
     return { removedInstallations: removed.length };
   }
 
+  private async requireAdmin(userId: string): Promise<void> {
+    if (!(await isGithubAppAdmin(this.db, userId))) {
+      throw new ForbiddenException('Only the person who created this GitHub App can recreate or replace it.');
+    }
+  }
+
   // ---- one-click GitHub App creation (GitHub "manifest" flow)
   /** The manifest the browser POSTs to GitHub. GitHub shows one confirmation page and sends back a code. */
   async manifest(userId: string) {
+    // replacing an existing app would disconnect every user: only its admin may do that
+    if (await getGithubAppConfig(this.db)) await this.requireAdmin(userId);
     const webhook = this.webhookUrl();
     if (!webhook) {
       throw new ServiceUnavailableException(
@@ -156,14 +168,17 @@ export class GithubService {
   }
 
   /** Exchanges the temporary code from GitHub for the new app's credentials and stores them. */
-  async completeManifest(code: string): Promise<string> {
+  async completeManifest(code: string, userId: string): Promise<string> {
+    if (await getGithubAppConfig(this.db)) await this.requireAdmin(userId);
     const res = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
       method: 'POST',
       headers: { accept: 'application/vnd.github+json', 'user-agent': 'ai-code-reviewer' },
     });
     if (!res.ok) throw new ServiceUnavailableException(`GitHub rejected the setup code (HTTP ${res.status}).`);
     const app = (await res.json()) as { id: number; slug: string; pem: string; webhook_secret: string; html_url: string };
-    const values = { appId: app.id, slug: app.slug, privateKey: app.pem, webhookSecret: app.webhook_secret, htmlUrl: app.html_url };
+    const values = {
+      appId: app.id, slug: app.slug, privateKey: app.pem, webhookSecret: app.webhook_secret, htmlUrl: app.html_url, createdBy: userId,
+    };
     await this.db.insert(githubApp).values({ id: 'default', ...values }).onConflictDoUpdate({ target: githubApp.id, set: values });
     clearGithubAppCache();
     this.app = null;

@@ -7,6 +7,8 @@ export interface GithubAppConfig {
   slug: string;
   privateKey: string;
   webhookSecret: string;
+  /** The user who created the app from the dashboard (its admin); null for an app from env vars. */
+  adminUserId: string | null;
 }
 
 let cached: { value: GithubAppConfig | null; at: number } | null = null;
@@ -26,13 +28,14 @@ export async function getGithubAppConfig(db: Db): Promise<GithubAppConfig | null
   const [row] = await db.select().from(githubApp).where(eq(githubApp.id, 'default'));
   let value: GithubAppConfig | null = null;
   if (row) {
-    value = { appId: String(row.appId), slug: row.slug, privateKey: row.privateKey, webhookSecret: row.webhookSecret };
+    value = { appId: String(row.appId), slug: row.slug, privateKey: row.privateKey, webhookSecret: row.webhookSecret, adminUserId: row.createdBy };
   } else if (process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY && process.env.GITHUB_WEBHOOK_SECRET) {
     value = {
       appId: process.env.GITHUB_APP_ID,
       slug: process.env.GITHUB_APP_SLUG ?? '',
       privateKey: process.env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
       webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
+      adminUserId: null,
     };
   }
   cached = { value, at: Date.now() };
@@ -43,4 +46,10 @@ export async function requireGithubAppConfig(db: Db): Promise<GithubAppConfig> {
   const config = await getGithubAppConfig(db);
   if (!config) throw new Error('GitHub App is not set up yet. Open the dashboard and click "Create GitHub App".');
   return config;
+}
+
+/** Is this user the GitHub App's admin (the one who created it from the dashboard)? */
+export async function isGithubAppAdmin(db: Db, userId: string | null | undefined): Promise<boolean> {
+  if (!userId) return false;
+  return (await getGithubAppConfig(db))?.adminUserId === userId;
 }

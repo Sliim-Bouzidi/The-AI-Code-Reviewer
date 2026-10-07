@@ -43,6 +43,20 @@
       "when": 1791241241309,
       "tag": "0005_lonely_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791374266371,
+      "tag": "0006_silly_typhoid_mary",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791374268414,
+      "tag": "0007_glamorous_raider",
+      "breakpoints": true
     }
   ]
 }

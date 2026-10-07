@@ -77,7 +77,7 @@ export function GithubAppCard() {
           </p>
         </div>
       </div>
-      {s.appSource === 'dashboard' && (
+      {s.appSource === 'dashboard' && s.isAdmin && (
         <Button variant='outline' size='sm' className='shrink-0' onClick={() => setConfirming(true)}>
           <IconRefresh /> Recreate GitHub App
         </Button>

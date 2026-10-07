@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Inject, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
-  clearLlmSettingsCache, getLlmEnv, getLlmSettingsRow, LLM_SETTING_ENV, llmSettings,
+  canUseEnvLlmKeys, clearLlmSettingsCache, getLlmEnv, getLlmSettingsRow, LLM_KEY_FIELDS, LLM_SETTING_ENV, llmSettings,
 } from '@codereview/db';
 import type { Db, LlmSettingField } from '@codereview/db';
 import { createEmbedderFromEnv, listModels, resolveProviders } from '@codereview/llm';
@@ -10,14 +10,15 @@ import type {
   LlmKeyStatus, LlmSettingsResponse, LlmSlotStatus, TestLlmResponse, UpdateLlmSettings,
 } from '@codereview/shared';
 import type { z } from 'zod';
-import { AuthGuard } from '../auth/auth.guard.js';
+import { AuthGuard, CurrentUser } from '../auth/auth.guard.js';
+import type { AuthUser } from '../auth/auth.guard.js';
 import { DB } from '../common/db.module.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 
 /**
- * AI provider settings for the "AI providers" dashboard page. Values saved here override `.env`
- * (see getLlmEnv); the worker picks them up before its next job, without a restart.
- * Demo limitation: any signed-in user can change these (single-tenant install).
+ * AI provider settings for the "AI providers" dashboard page, per user: each user's keys and models
+ * are used for the reviews, indexing and evals of their own repositories (see getLlmEnv). The server's
+ * env keys are only offered to a user when they may use them (SHARED_LLM_KEYS, or the app admin).
  */
 @Controller('api/settings/llm')
 @UseGuards(AuthGuard)
@@ -25,11 +26,19 @@ export class LlmSettingsController {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   @Get()
-  async get(): Promise<LlmSettingsResponse> {
-    const row = await getLlmSettingsRow(this.db);
-    const env = await getLlmEnv(this.db);
+  async get(@CurrentUser() user: AuthUser): Promise<LlmSettingsResponse> {
+    const [row, env, useEnvKeys] = await Promise.all([
+      getLlmSettingsRow(this.db, user.id),
+      getLlmEnv(this.db, user.id),
+      canUseEnvLlmKeys(this.db, user.id),
+    ]);
+    const isKey = (field: LlmSettingField) => (LLM_KEY_FIELDS as readonly string[]).includes(field);
     const source = (field: LlmSettingField) =>
-      row?.[field] ? ('dashboard' as const) : process.env[LLM_SETTING_ENV[field]] ? ('env' as const) : null;
+      row?.[field]
+        ? ('dashboard' as const)
+        : process.env[LLM_SETTING_ENV[field]] && (useEnvKeys || !isKey(field))
+          ? ('env' as const)
+          : null;
     const key = (field: LlmSettingField): LlmKeyStatus => {
       const value = env[LLM_SETTING_ENV[field]];
       return { set: !!value, last4: value ? value.slice(-4) : null, source: source(field) };
@@ -62,11 +71,15 @@ export class LlmSettingsController {
         fallback: slot(fallback, env.LLM_FALLBACK_MODEL),
         embeddings: { provider: embedder ? 'gemini' : null, model: env.EMBEDDING_MODEL || null, configured: !!embedder },
       },
+      ownKeysRequired: !useEnvKeys,
     };
   }
 
   @Put()
-  async update(@Body(new ZodPipe(UpdateLlmSettingsSchema)) body: UpdateLlmSettings): Promise<LlmSettingsResponse> {
+  async update(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(UpdateLlmSettingsSchema)) body: UpdateLlmSettings,
+  ): Promise<LlmSettingsResponse> {
     const values: Partial<Record<LlmSettingField, string | null>> = {};
     for (const field of Object.keys(LLM_SETTING_ENV) as LlmSettingField[]) {
       const value = body[field];
@@ -75,22 +88,23 @@ export class LlmSettingsController {
     if (Object.keys(values).length > 0) {
       await this.db
         .insert(llmSettings)
-        .values({ id: 'default', ...values, updatedAt: new Date() })
-        .onConflictDoUpdate({ target: llmSettings.id, set: { ...values, updatedAt: new Date() } });
-      clearLlmSettingsCache();
+        .values({ userId: user.id, ...values, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: llmSettings.userId, set: { ...values, updatedAt: new Date() } });
+      clearLlmSettingsCache(user.id);
     }
-    return this.get();
+    return this.get(user);
   }
 
   /** Models a provider offers for the saved key, for the model pickers. Never returns the key. */
   @Get('models')
   async models(
+    @CurrentUser() user: AuthUser,
     @Query('provider') provider: string | undefined,
     @Query('kind') kind: string | undefined,
   ): Promise<{ models: ModelInfo[] }> {
     const name = LlmProviderNameSchema.safeParse(provider);
     if (!name.success) throw new BadRequestException('provider must be gemini, openrouter or openai');
-    const env = await getLlmEnv(this.db);
+    const env = await getLlmEnv(this.db, user.id);
     try {
       return { models: await listModels(env, name.data, kind === 'embedding' ? 'embedding' : 'chat') };
     } catch (err) {
@@ -100,8 +114,11 @@ export class LlmSettingsController {
 
   /** Makes one tiny real call with the current settings, so a wrong key shows up right away. */
   @Post('test')
-  async test(@Body(new ZodPipe(TestLlmBodySchema)) body: z.infer<typeof TestLlmBodySchema>): Promise<TestLlmResponse> {
-    const env = await getLlmEnv(this.db);
+  async test(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(TestLlmBodySchema)) body: z.infer<typeof TestLlmBodySchema>,
+  ): Promise<TestLlmResponse> {
+    const env = await getLlmEnv(this.db, user.id);
     const started = Date.now();
     const done = (ok: boolean, provider: string | null, model: string | null, message: string): TestLlmResponse => ({
       ok, ms: Date.now() - started, provider, model, message,
@@ -109,7 +126,7 @@ export class LlmSettingsController {
 
     if (body.slot === 'embeddings') {
       const embedder = createEmbedderFromEnv(env);
-      if (!embedder) return done(false, null, null, 'Not configured: needs a Gemini key and an embedding model.');
+      if (!embedder) return done(false, null, null, 'Not configured: add your Gemini key and pick an embedding model.');
       try {
         const [vector] = await embedder.embed(['hello'], 'query');
         return done(true, 'gemini', embedder.model, `Returned a ${vector?.length ?? 0}-dimension vector.`);
@@ -121,7 +138,7 @@ export class LlmSettingsController {
     const slots = resolveProviders(env);
     const provider = body.slot === 'primary' ? slots.primary : slots.fallback;
     const wanted = body.slot === 'primary' ? env.LLM_MODEL : env.LLM_FALLBACK_MODEL;
-    if (!provider) return done(false, null, wanted ?? null, 'Not configured: pick a provider, add its key and a model.');
+    if (!provider) return done(false, null, wanted ?? null, 'Not configured: pick a provider, add your key for it and a model.');
     try {
       const res = await provider.generate({ system: 'You are a connectivity check.', prompt: 'Reply with the word OK.' });
       return done(true, provider.name, provider.model, `Answered: "${res.text.trim().slice(0, 40)}"`);

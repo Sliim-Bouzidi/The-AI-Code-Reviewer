@@ -26,18 +26,18 @@ export class GithubController {
   /** What the setup wizard needs to know: is the GitHub App created, is there a webhook URL, is an LLM key set. */
   @Get('setup/status')
   @UseGuards(AuthGuard)
-  setupStatus() {
-    return this.github.setupStatus();
+  setupStatus(@CurrentUser() user: AuthUser) {
+    return this.github.setupStatus(user.id);
   }
 
   /**
-   * Forget the current GitHub App (and its connected repos) to create a new one, e.g. under another
-   * GitHub account. Demo limitation: any signed-in user can do this (single-tenant install).
+   * Forget the current GitHub App (and every connected repo) to create a new one, e.g. under another
+   * GitHub account. Admin only: it disconnects every user.
    */
   @Delete('setup/github-app')
   @UseGuards(AuthGuard)
-  resetApp() {
-    return this.github.resetApp();
+  resetApp(@CurrentUser() user: AuthUser) {
+    return this.github.resetApp(user.id);
   }
 
   /** Step 1 of one-click setup: the manifest the browser submits to GitHub. */
@@ -55,7 +55,7 @@ export class GithubController {
   async manifestCallback(@Query('code') code: string | undefined, @Query('state') state: string | undefined, @Res() res: Response) {
     const userId = await this.github.userIdFromState(state);
     if (!userId || !code) throw new BadRequestException('Invalid setup callback');
-    await this.github.completeManifest(code);
+    await this.github.completeManifest(code, userId);
     res.redirect(await this.github.installUrl(userId));
   }
 

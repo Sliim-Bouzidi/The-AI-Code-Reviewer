@@ -38,6 +38,8 @@ export function buildSummary(findings: CandidateFinding[], reviewedFiles: number
   return text;
 }
 
+const NO_AI_KEY = `No AI provider set up for this account: add your own API key on the dashboard's "AI providers" page.`;
+
 /** Runs the whole review for one job. Idempotent: a retry replaces the previous attempt's findings. */
 export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
   const { db } = deps;
@@ -60,13 +62,16 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
   };
 
   try {
+    // each user brings their own AI keys: fail fast with something they can act on
+    if (deps.llm.length === 0) throw new Error(NO_AI_KEY);
+
     // ---- settings + GitHub coordinates
     let settings: RepoSettings = DEFAULT_REPO_SETTINGS;
     if (review.repoId) {
       const [s] = await db.select().from(repoSettings).where(eq(repoSettings.repoId, review.repoId));
       if (s) settings = s;
     }
-    if (review.trigger === 'webhook' && review.prId) {
+    if ((review.trigger === 'webhook' || review.trigger === 'manual') && review.prId) {
       const [row] = await db
         .select({ pr: pullRequests, repo: repositories, inst: installations })
         .from(pullRequests)

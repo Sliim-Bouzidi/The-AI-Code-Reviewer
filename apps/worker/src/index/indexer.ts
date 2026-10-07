@@ -39,7 +39,7 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
   if (!row) return log('index', 'repo missing', { repoId: job.repoId });
   if (!embedder) {
     await db.update(repositories).set({ indexStatus: 'failed' }).where(eq(repositories.id, job.repoId));
-    throw new Error('embeddings are not configured (GEMINI_API_KEY / EMBEDDING_MODEL)');
+    throw new Error(`Embeddings are not set up for this account: add a Gemini API key on the dashboard's "AI providers" page.`);
   }
 
   // shown under the status badge on the Repositories page

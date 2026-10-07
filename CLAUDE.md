@@ -530,6 +530,12 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - **Evals:** `evals/` has 6 cases (5 planted-bug diffs + a clean change); `pnpm eval` reports recall, precision and false alarms against the running API.
 - **CI:** `.github/workflows/ci.yml` (build, typecheck, test, docker build).
 
+### Multi-user safety (added 2026-10-07)
+- **Per-user AI settings:** `llm_settings` has one row per user (`user_id` primary key, migrations 0006/0007). Each job runs with the settings of the user it belongs to (`apps/worker/src/owner.ts`: repo owner via its installation, or the MCP requester / eval runner), through `getLlmEnv(db, userId)` (packages/db). Semantic search uses the caller's embedder.
+- **Server env keys are not shared** by default: only the GitHub App admin may use the `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_COMPAT_API_KEY` from env; everyone else brings their own on the "AI providers" page. `SHARED_LLM_KEYS=true` shares them with every signed-in user (trusted team only). Model/provider env values stay shared defaults.
+- **GitHub App admin:** `github_app.created_by` (the user who created it; backfilled to the first connected user). Only the admin may recreate or replace the app (`DELETE /api/setup/github-app`, `POST /api/setup/github-app` when one exists); `GET /api/setup/status` returns `isAdmin`.
+- **Re-run review:** `POST /api/reviews/:id/rerun` reviews a PR again on its latest known commit (trigger `manual`, posted on GitHub like a webhook review; one at a time per PR). Button on the review page, icon on each PR row of the reviews table.
+
 ### Not built yet
 - Langfuse/Sentry.
 
@@ -538,7 +544,7 @@ Semgrep must be installed locally (`pip install semgrep` or `brew install semgre
 - `reviews.user_id` was added: who requested an MCP review (those have no repo/PR to check ownership on).
 - `installations.user_id` is null until the Connect GitHub callback runs (the webhook can arrive first).
 - Extra route `GET /api/findings/:id` (for the MCP `explain_finding` tool).
-- Extra env vars: `GITHUB_APP_SLUG`, `WEB_URL`, `LLM_FALLBACK_MODEL`, `LLM_MIN_INTERVAL_MS`, `SEMGREP_CONFIG`, `MCP_PORT`.
+- Extra env vars: `GITHUB_APP_SLUG`, `WEB_URL`, `LLM_FALLBACK_MODEL`, `LLM_MIN_INTERVAL_MS`, `SEMGREP_CONFIG`, `MCP_PORT`, `SHARED_LLM_KEYS`, `CORS_ORIGINS`.
 - The index queue is named `index-repo` (BullMQ queue names), the job is still "index_repo" conceptually.
 - LLM providers are called over HTTP directly instead of through their SDKs.
 - Besides Gemini and OpenRouter, `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` accept `openai`: any OpenAI-compatible endpoint (`OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`), e.g. NVIDIA NIM or Groq, whose free tiers are far larger than Gemini's ~20 review calls/day. Embeddings still use Gemini only.

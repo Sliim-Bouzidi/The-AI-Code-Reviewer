@@ -1,12 +1,13 @@
 'use client';
 
 import type { LlmKeyStatus, LlmSettingsResponse, LlmSlotStatus, TestLlmResponse, UpdateLlmSettings } from '@codereview/shared';
-import { IconCheck, IconExternalLink, IconPlugConnected, IconX } from '@tabler/icons-react';
+import { IconCheck, IconExternalLink, IconKey, IconPlugConnected, IconX } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { toast } from 'sonner';
 import PageContainer from '@/components/layout/page-container';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -241,7 +242,7 @@ export default function ProvidersPage() {
   return (
     <PageContainer
       title='AI providers'
-      description='Which AI models review your pull requests and index your code. Keys saved here override the .env file and apply without a restart.'
+      description='Which AI models review your pull requests and index your code. These settings and keys are yours only: they are used for your repositories, and apply without a restart.'
     >
       {settings.isError ? (
         <LoadError error={settings.error} />
@@ -249,6 +250,17 @@ export default function ProvidersPage() {
         <RowsSkeleton />
       ) : (
         <>
+          {d!.ownKeysRequired && !d!.active.primary.configured && (
+            <Alert>
+              <IconKey />
+              <AlertTitle>Add your own API key to start reviewing</AlertTitle>
+              <AlertDescription>
+                Reviews and indexing of your repositories run on your own AI keys. Free options: a Gemini key (also needed for
+                indexing) from aistudio.google.com, or a Groq key from console.groq.com. Paste it under “API keys” below, pick the
+                models, then press “Test”.
+              </AlertDescription>
+            </Alert>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>In use right now</CardTitle>

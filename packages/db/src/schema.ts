@@ -159,16 +159,21 @@ export const githubApp = pgTable('github_app', {
   privateKey: text('private_key').notNull(),
   webhookSecret: text('webhook_secret').notNull(),
   htmlUrl: text('html_url'),
+  // the app's admin: only this user may recreate/replace it, and env AI keys are always theirs to use
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**
- * AI provider settings saved from the dashboard (single row). Every column is optional: a null value
- * means "use the env var". Read through getLlmEnv (packages/db). Keys are never sent back to the browser.
+ * AI provider settings saved from the dashboard, one row per user: each user brings their own keys and
+ * models, used for the reviews, indexing and evals of their repositories. A null column means "use the
+ * env default" (env keys only when shared, see getLlmEnv). Keys are never sent back to the browser.
  * Demo limitation: stored as plain text, like the GitHub App private key.
  */
 export const llmSettings = pgTable('llm_settings', {
-  id: text('id').primaryKey().default('default'),
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
   geminiApiKey: text('gemini_api_key'),
   openrouterApiKey: text('openrouter_api_key'),
   openaiCompatBaseUrl: text('openai_compat_base_url'),

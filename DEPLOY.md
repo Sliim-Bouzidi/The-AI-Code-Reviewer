@@ -37,8 +37,12 @@ Railway sets `PORT`; the api and mcp honour it. Generate a domain for `api` (Set
 | `WEBHOOK_URL` (api) | `https://<api-domain>.up.railway.app/webhooks/github` |
 | `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (api) | from the Clerk dashboard |
 | `LLM_PROVIDER`, `LLM_MODEL`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `LLM_FALLBACK_*`, `OPENAI_COMPAT_*`, `EMBEDDING_MODEL`, `EMBEDDING_DIM` (api + worker) | see `.env.example` |
+| `SHARED_LLM_KEYS` (api + worker) | leave unset (default): the AI keys above serve only the GitHub App admin, every other user adds their own on "AI providers". `true` = share them with every signed-in user. |
 | `GITHUB_APP_*` (optional) | only if reusing an app; otherwise use "Create GitHub App" in the dashboard |
 | `CODEREVIEW_API_URL` (mcp) | `https://<api-domain>.up.railway.app` |
+
+Migrations do **not** run on Railway (its config-as-code pre-deploy step is deprecated): after a schema change run
+`DATABASE_URL=<neon url> pnpm db:migrate` from your machine **before** pushing the code that needs it.
 
 Do **not** deploy the `smee` container. Do not use the paste-your-Clerk-keys page in production, use env vars
 (the config volume is not shared between Railway services).
