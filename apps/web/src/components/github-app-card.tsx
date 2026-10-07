@@ -12,9 +12,9 @@ import {
 import { errorMessage, useApi } from '@/lib/api';
 
 /**
- * Which GitHub App this install uses and who owns it. A private app can only be installed by the
- * GitHub account that created it, so showing the owner explains GitHub's "this is a private GitHub
- * App" page. "Recreate" forgets the app so a new one can be made under the right account.
+ * Which GitHub App this install uses and who owns it. Everyone connects their own repositories
+ * through it; while the app is private only its owner can install it, which is what GitHub's
+ * "this is a private GitHub App" page means. "Recreate" (admin only) forgets the app.
  */
 export function GithubAppCard() {
   const api = useApi();
@@ -68,8 +68,11 @@ export function GithubAppCard() {
           <p className='text-muted-foreground text-xs'>
             {s.appOwner ? (
               <>
-                Owned by <strong className='text-foreground'>@{s.appOwner}</strong>. Only this GitHub account can install it on its
-                repositories. If GitHub says “this is a private GitHub App”, you are logged into GitHub with another account.
+                Owned by <strong className='text-foreground'>@{s.appOwner}</strong>. Use “Add repositories” to choose which of your
+                repositories it reviews.{' '}
+                {s.isAdmin
+                  ? 'If other people see “this is a private GitHub App”, make it public: GitHub → Settings → Developer settings → GitHub Apps → Advanced.'
+                  : 'If GitHub says “this is a private GitHub App”, the owner has not opened it to other accounts yet.'}
               </>
             ) : (
               'Could not reach GitHub to check who owns this app.'
