@@ -2,9 +2,6 @@
 #   api, worker, web, mcp, migrate, smee
 # syntax=docker/dockerfile:1
 
-# Railway cannot pick a --target, so the LAST stage below is chosen by the SERVICE build arg / variable
-# (api | worker | mcp | web | migrate). docker compose ignores this and uses its own targets.
-ARG SERVICE=api
 
 FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
@@ -64,5 +61,8 @@ RUN npm install -g smee-client
 COPY scripts/smee.mjs /smee.mjs
 CMD ["node", "/smee.mjs"]
 
-# Default stage for builders that do not set a target (Railway).
-FROM ${SERVICE} AS final
+# Default stage for builders that do not set a target (Railway cannot pick a --target): one image with
+# git + Semgrep that starts whichever app the SERVICE variable names (api | worker | mcp).
+# docker compose ignores this stage and uses its own targets.
+FROM worker AS final
+CMD ["sh", "-c", "exec pnpm --filter @codereview/${SERVICE:-api} start"]
