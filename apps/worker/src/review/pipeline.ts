@@ -9,6 +9,7 @@ import type { CandidateFinding, RepoSettings, ReviewJobData } from '@codereview/
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
 import { changedSymbols, parseFile } from '../index/symbols.js';
+import type { ParsedFile } from '../index/symbols.js';
 import { notifyReview } from '../notify.js';
 import { publish } from '../pubsub.js';
 import { downloadFiles, fetchPrDiff, postReview, reactToPr, repoRef, startCheckRun, updateCheckRun } from '../github.js';
@@ -110,6 +111,8 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
     // Needs the real files, so only PR reviews (a local diff has no file contents).
     const called = new Map<string, string[]>();
     const changedNames = new Map<string, string[]>();
+    const fileContents = new Map<string, string>();
+    const parsedFiles = new Map<string, ParsedFile>();
     if (gh && files.length > 0) {
       await timed(
         db,
@@ -121,8 +124,11 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
           await downloadFiles(gh!.ref, gh!.headSha, files.map((f) => f.path), dir);
           for (const file of files) {
             try {
-              const parsed = await parseFile(file.path, await readFile(join(dir, file.path), 'utf8'));
+              const content = await readFile(join(dir, file.path), 'utf8');
+              fileContents.set(file.path, content);
+              const parsed = await parseFile(file.path, content);
               if (!parsed) continue;
+              parsedFiles.set(file.path, parsed);
               const touched = changedSymbols(parsed, file.addedLines);
               changedNames.set(file.path, touched.map((s) => s.name));
               called.set(file.path, [...new Set(touched.flatMap((s) => s.calls))]);
@@ -174,7 +180,22 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
     let reviewedCount = 0;
     for (const file of files) {
       try {
-        const res = await reviewFile(deps.llm, file, context.get(file.path) ?? [], settings.customRules, settings.strictness);
+        const findingLines = candidates
+          .filter((c) => c.filePath === file.path && c.lineStart != null)
+          .map((c) => c.lineStart!);
+
+        const res = await reviewFile(
+          deps.llm,
+          file,
+          context.get(file.path) ?? [],
+          settings.customRules,
+          settings.strictness,
+          {
+            fileContent: fileContents.get(file.path),
+            parsed: parsedFiles.get(file.path),
+            findingLines,
+          },
+        );
         candidates.push(...res.findings);
         tokensIn += res.tokensIn;
         tokensOut += res.tokensOut;

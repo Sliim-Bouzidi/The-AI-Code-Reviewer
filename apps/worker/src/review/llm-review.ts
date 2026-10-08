@@ -3,8 +3,9 @@ import type { LlmProvider } from '@codereview/llm';
 import { LlmReviewOutputSchema } from '@codereview/shared';
 import type { CandidateFinding, CustomRule, Strictness } from '@codereview/shared';
 import type { ContextChunk } from './context.js';
-import { renderFileForLlm } from './diff.js';
 import type { DiffFile } from './diff.js';
+import { renderTargetedContextForLlm } from './targeted-context.js';
+import type { TargetedContextOptions } from './targeted-context.js';
 
 export const SYSTEM_PROMPT = `You are a senior engineer reviewing one file of a pull request.
 Report only real problems in the CHANGED lines (marked "+"): bugs, security issues, performance
@@ -35,6 +36,7 @@ export function buildPrompt(
   context: ContextChunk[],
   rules: CustomRule[],
   strictness: Strictness,
+  options?: TargetedContextOptions,
 ): string {
   const parts = [`File: ${file.path} (${file.status})`, `Strictness: ${strictness}`];
   if (rules.length > 0) {
@@ -48,7 +50,7 @@ export function buildPrompt(
           .join('\n'),
     );
   }
-  parts.push('Diff to review:\n' + renderFileForLlm(file));
+  parts.push('Diff to review:\n' + renderTargetedContextForLlm(file, options));
   return parts.join('\n\n');
 }
 
@@ -68,10 +70,11 @@ export async function reviewFile(
   context: ContextChunk[],
   rules: CustomRule[],
   strictness: Strictness,
+  options?: TargetedContextOptions,
 ): Promise<FileReviewResult> {
   const res = await generateJson(llm, {
     system: SYSTEM_PROMPT,
-    prompt: buildPrompt(file, context, rules, strictness),
+    prompt: buildPrompt(file, context, rules, strictness, options),
     schema: LlmReviewOutputSchema,
   });
   return {
