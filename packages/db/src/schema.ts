@@ -280,3 +280,112 @@ export const webhookDeliveries = pgTable('webhook_deliveries', {
   event: text('event'),
   receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * One test-generation run for a given pull request.
+ * A single PR may have at most one active run; re-runs create a new row.
+ */
+export const testGenerations = pgTable(
+  'test_generations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The pull request that triggered this generation. */
+    prId: uuid('pr_id')
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: 'cascade' }),
+    /** Repository – denormalized for quick queries without joining through PR. */
+    repoId: uuid('repo_id')
+      .notNull()
+      .references(() => repositories.id, { onDelete: 'cascade' }),
+    /** HEAD commit SHA of the PR at the time of generation. */
+    headSha: text('head_sha').notNull(),
+    /**
+     * Overall status of the generation run.
+     * pending → generating → generated → validating → completed | failed
+     */
+    status: text('status')
+      .$type<'pending' | 'generating' | 'generated' | 'validating' | 'completed' | 'failed'>()
+      .notNull()
+      .default('pending'),
+    /** Short human-readable message (error reason, progress note, …). */
+    message: text('message'),
+    /** Line coverage % on HEAD before generation (0–100), null if not measured. */
+    coverageBefore: integer('coverage_before'),
+    /** Line coverage % estimated after adding valid tests (0–100), null if not measured. */
+    coverageAfter: integer('coverage_after'),
+    /** coverageAfter − coverageBefore, stored for easy sorting. */
+    coverageGain: integer('coverage_gain'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('test_generations_pr').on(t.prId),
+    index('test_generations_repo_created').on(t.repoId, t.createdAt),
+  ],
+);
+
+/**
+ * One generated test case (targeting one Java method).
+ * Multiple rows per test_generation run (one per modified method).
+ */
+export const generatedTests = pgTable(
+  'generated_tests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    generationId: uuid('generation_id')
+      .notNull()
+      .references(() => testGenerations.id, { onDelete: 'cascade' }),
+    /** Relative path to the Java source file, e.g. "src/main/java/com/example/UserService.java". */
+    sourceFile: text('source_file').notNull(),
+    /** Simple name of the Java class, e.g. "UserService". */
+    className: text('class_name').notNull(),
+    /** Name of the method under test, e.g. "createUser". */
+    methodName: text('method_name').notNull(),
+    /** Full name of the generated test class, e.g. "UserServiceTest". */
+    testClassName: text('test_class_name').notNull(),
+    /** Complete Java source of the generated test class (JUnit 5 + Mockito). */
+    testCode: text('test_code').notNull(),
+    /** Raw LLM response before any parsing/validation. */
+    rawLlmOutput: text('raw_llm_output'),
+    /**
+     * Fine-grained lifecycle status of this individual test.
+     * PENDING → GENERATING → GENERATED → COMPILING → RUNNING → PASSED
+     *                                                          → FAILED
+     *                                                          → TIMEOUT
+     *                                                          → ERROR
+     *                                              → REJECTED  (compile failed)
+     */
+    status: text('status')
+      .$type<
+        | 'PENDING'
+        | 'GENERATING'
+        | 'GENERATED'
+        | 'COMPILING'
+        | 'RUNNING'
+        | 'PASSED'
+        | 'FAILED'
+        | 'REJECTED'
+        | 'TIMEOUT'
+        | 'ERROR'
+      >()
+      .notNull()
+      .default('PENDING'),
+    /** Did the Docker sandbox compilation succeed? null = not attempted. */
+    compileSuccess: boolean('compile_success'),
+    /** Raw javac / Maven stderr output from the compilation step. */
+    compileError: text('compile_error'),
+    /** Did all test methods execute and pass? null = not attempted. */
+    testSuccess: boolean('test_success'),
+    /** JVM / JUnit output from the test-execution step. */
+    executionOutput: text('execution_output'),
+    /** Error message when executionSuccess is false. */
+    executionError: text('execution_error'),
+    /** Wall-clock time (ms) of the Docker sandbox run (compile + execute). */
+    durationMs: integer('duration_ms'),
+    /** Whether this test was posted as a GitHub PR suggestion. */
+    postedToGithub: boolean('posted_to_github').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('generated_tests_generation').on(t.generationId)],
+);

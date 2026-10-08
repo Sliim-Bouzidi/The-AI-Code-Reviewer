@@ -27,3 +27,10 @@ export const DEFAULT_JOB_OPTIONS = {
   removeOnComplete: 100,
   removeOnFail: 200,
 };
+
+/** Payload of a job on the `test-generation` queue. */
+export interface TestGenerationJobData {
+  prId: string;
+  repoId: string;
+  headSha: string;
+}
