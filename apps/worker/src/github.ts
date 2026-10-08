@@ -165,3 +165,54 @@ export async function postReview(
   });
   return Number(res.data.id);
 }
+
+/** Finds an existing PR issue comment containing a specific HTML comment marker. */
+export async function findPrCommentWithMarker(
+  ref: RepoRef,
+  prNumber: number,
+  marker: string,
+): Promise<number | null> {
+  try {
+    const octokit = await (await getApp()).getInstallationOctokit(ref.installationId);
+    const res = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+      owner: ref.owner,
+      repo: ref.repo,
+      issue_number: prNumber,
+      per_page: 100,
+    });
+    const comment = res.data.find((c: any) => c.body && c.body.includes(marker));
+    return comment ? Number(comment.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Idempotently posts or updates a PR issue comment identified by a unique marker. */
+export async function postOrUpdatePrComment(
+  ref: RepoRef,
+  prNumber: number,
+  marker: string,
+  body: string,
+): Promise<number | null> {
+  const octokit = await (await getApp()).getInstallationOctokit(ref.installationId);
+  const existingCommentId = await findPrCommentWithMarker(ref, prNumber, marker);
+
+  if (existingCommentId) {
+    await octokit.request('PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}', {
+      owner: ref.owner,
+      repo: ref.repo,
+      comment_id: existingCommentId,
+      body,
+    });
+    return existingCommentId;
+  } else {
+    const res = await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+      owner: ref.owner,
+      repo: ref.repo,
+      issue_number: prNumber,
+      body,
+    });
+    return Number(res.data.id);
+  }
+}
+

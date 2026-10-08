@@ -20,6 +20,7 @@ import type { JavaMethodContext } from './java-context.js';
 import { generateTestForMethod } from './test-generator.js';
 import type { JavaExecutor } from './test-validator.js';
 import { validateJavaTest } from './test-validator.js';
+import { publishTestGenerationToGithub } from './test-generation-github.js';
 
 export interface TestGenerationWorkerOptions {
   executor?: JavaExecutor;
@@ -223,6 +224,13 @@ export async function runTestGeneration(
       .where(eq(testGenerations.id, generationId));
 
     log('test-gen', 'test generation completed', { prId: job.prId, methods: allContexts.length, ms: Date.now() - started });
+
+    // ---- 7. Publish GitHub PR summary comment (Idempotent & Error Isolated)
+    await publishTestGenerationToGithub(deps, {
+      ref,
+      prNumber: row.pr.number,
+      generationId,
+    });
   } catch (err: any) {
     log('test-gen', 'test generation failed', { prId: job.prId, error: err.message });
 
@@ -233,6 +241,12 @@ export async function runTestGeneration(
         message: err.message.slice(0, 300),
       })
       .where(eq(testGenerations.id, generationId));
+
+    await publishTestGenerationToGithub(deps, {
+      ref,
+      prNumber: row.pr.number,
+      generationId,
+    });
 
     throw err; // Allow BullMQ retry for retryable network/redis errors
   } finally {
