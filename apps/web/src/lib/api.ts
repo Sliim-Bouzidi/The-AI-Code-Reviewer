@@ -1,8 +1,8 @@
 'use client';
 
 import type {
-  EvalRun, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
-  UpdateLlmSettings, UpdateRepoSettings,
+  EvalRun, GeneratedTestDetailDto, GeneratedTestSummaryDto, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestGenerationDetailsDto, TestGenerationStatusResponseDto, TestGenerationSummaryDto, TestLlmResponse,
+  TriggerTestGenerationResponseDto, UpdateLlmSettings, UpdateRepoSettings,
 } from '@codereview/shared';
 import * as React from 'react';
 import { useGetToken } from './auth';
@@ -134,6 +134,16 @@ export function useApi() {
       keys: () => request<ApiKey[]>('GET', '/api/keys'),
       createKey: (name: string) => request<ApiKey & { key: string }>('POST', '/api/keys', { name }),
       revokeKey: (id: string) => request<void>('DELETE', `/api/keys/${id}`),
+      testGenerations: (prId: string) =>
+        request<TestGenerationSummaryDto[]>('GET', `/api/pull-requests/${prId}/test-generations`),
+      triggerTestGeneration: (prId: string) =>
+        request<TriggerTestGenerationResponseDto>('POST', `/api/pull-requests/${prId}/test-generations`),
+      testGenerationDetails: (id: string) =>
+        request<TestGenerationDetailsDto>('GET', `/api/test-generations/${id}`),
+      testGenerationStatus: (id: string) =>
+        request<TestGenerationStatusResponseDto>('GET', `/api/test-generations/${id}/status`),
+      generatedTest: (testId: string) =>
+        request<GeneratedTestDetailDto>('GET', `/api/generated-tests/${testId}`),
     };
   }, [getToken]);
 }

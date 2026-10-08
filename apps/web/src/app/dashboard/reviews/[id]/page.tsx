@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { useApi } from '@/lib/api';
 import { formatDuration, timeAgo } from '@/lib/utils';
+import { TestGenerationSection } from '@/components/test-generation/test-generation-section';
 
 const rank = (s: Severity) => SEVERITY_ORDER.indexOf(s);
 
@@ -128,6 +129,7 @@ export default function ReviewPage() {
             </Alert>
           )}
           <ReviewTimeline reviewId={r!.id} status={r!.status} />
+          {r!.prId && <TestGenerationSection prId={r!.prId} />}
           {r!.summary && (
             <Card>
               <CardHeader>

@@ -16,6 +16,9 @@ import { ReposController } from './repos/repos.controller.js';
 import { ReposService } from './repos/repos.service.js';
 import { ReviewsController } from './reviews/reviews.controller.js';
 
+import { TestGenerationController } from './test-generation/test-generation.controller.js';
+import { TestGenerationService } from './test-generation/test-generation.service.js';
+
 @Controller('health')
 class HealthController {
   @Get()
@@ -28,12 +31,17 @@ class HealthController {
   imports: [
     DbModule,
     BullModule.forRootAsync({ useFactory: () => ({ connection: redisConnection() }) }),
-    BullModule.registerQueue({ name: QUEUES.REVIEW }, { name: QUEUES.INDEX }, { name: QUEUES.EVAL }),
+    BullModule.registerQueue(
+      { name: QUEUES.REVIEW },
+      { name: QUEUES.INDEX },
+      { name: QUEUES.EVAL },
+      { name: QUEUES.TEST_GEN },
+    ),
   ],
   controllers: [
     HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController,
-    NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController,
+    NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController, TestGenerationController,
   ],
-  providers: [AuthGuard, GithubService, ReposService, RealtimeService],
+  providers: [AuthGuard, GithubService, ReposService, RealtimeService, TestGenerationService],
 })
 export class AppModule {}

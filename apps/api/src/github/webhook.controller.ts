@@ -6,7 +6,7 @@ import type { Request } from 'express';
 import { eq, pullRequests, repositories, reviews, webhookDeliveries } from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { DEFAULT_JOB_OPTIONS, QUEUES } from '@codereview/shared';
-import type { IndexJobData, ReviewJobData } from '@codereview/shared';
+import type { IndexJobData, ReviewJobData, TestGenerationJobData } from '@codereview/shared';
 import { DB } from '../common/db.module.js';
 import { GithubService } from './github.service.js';
 
@@ -19,6 +19,7 @@ export class WebhookController {
     @Inject(DB) private readonly db: Db,
     @InjectQueue(QUEUES.REVIEW) private readonly reviewQueue: Queue<ReviewJobData>,
     @InjectQueue(QUEUES.INDEX) private readonly indexQueue: Queue<IndexJobData>,
+    @InjectQueue(QUEUES.TEST_GEN) private readonly testGenQueue: Queue<TestGenerationJobData>,
     private readonly github: GithubService,
   ) {}
 
@@ -111,6 +112,11 @@ export class WebhookController {
       .values({ prId: prRow!.id, repoId: repo.id, headSha: pr.head.sha, trigger: 'webhook', status: 'queued' })
       .returning({ id: reviews.id });
     await this.reviewQueue.add('review', { reviewId: review!.id }, { ...DEFAULT_JOB_OPTIONS, jobId: review!.id });
+    await this.testGenQueue.add(
+      'test-generation',
+      { prId: prRow!.id, repoId: repo.id, headSha: pr.head.sha },
+      { ...DEFAULT_JOB_OPTIONS, jobId: `testgen-${prRow!.id}-${pr.head.sha}` },
+    );
     return { ok: true, queued: true, reviewId: review!.id };
   }
 }

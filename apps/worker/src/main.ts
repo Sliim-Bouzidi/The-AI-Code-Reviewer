@@ -2,7 +2,7 @@ import { Worker } from 'bullmq';
 import { createDb, eq, getLlmEnv, LLM_SETTING_ENV, repositories, reviews } from '@codereview/db';
 import { createEmbedderFromEnv, createProvidersFromEnv } from '@codereview/llm';
 import { loadEnv, QUEUES, redisConnection } from '@codereview/shared';
-import type { EvalJobData, IndexJobData, ReviewJobData } from '@codereview/shared';
+import type { EvalJobData, IndexJobData, ReviewJobData, TestGenerationJobData } from '@codereview/shared';
 import { log } from './deps.js';
 import type { Deps } from './deps.js';
 import { failEvalRun, runEvals } from './eval/run-evals.js';
@@ -11,6 +11,7 @@ import { runIndex } from './index/indexer.js';
 import { notifyIndex, notifyReview } from './notify.js';
 import { evalOwnerId, repoOwnerId, reviewOwnerId } from './owner.js';
 import { runReview } from './review/pipeline.js';
+import { runTestGeneration } from './tests/test-generation-worker.js';
 
 loadEnv();
 
@@ -59,6 +60,11 @@ const workers = [
     QUEUES.EVAL,
     async (job) => runEvals(await depsFor(await evalOwnerId(db, job.data.runId)), job.data),
     { connection, concurrency: 1, lockDuration: 10 * 60_000 },
+  ),
+  new Worker<TestGenerationJobData>(
+    QUEUES.TEST_GEN,
+    async (job) => runTestGeneration(await depsFor(await repoOwnerId(db, job.data.repoId)), job.data),
+    { connection, concurrency: 1 },
   ),
 ];
 
