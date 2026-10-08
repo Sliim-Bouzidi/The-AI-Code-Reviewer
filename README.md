@@ -82,6 +82,28 @@ Slash commands: `/mcp__codereview__review` (review your local changes), `/mcp__c
 
 Each step is written to `review_events`, which is what the dashboard timeline shows.
 
+## Automatic Test Generation (Java JUnit 5 + Mockito)
+
+Automatically generates unit tests for modified Java methods in Pull Requests and validates them in a secure Docker sandbox.
+
+```
+Automatic Test Generation
+├── Java Context Extraction (Tree-sitter)
+├── LLM JUnit 5 / Mockito Generation
+├── Docker Sandbox Isolation (eclipse-temurin:21-jdk-alpine)
+├── Test Execution Validation
+├── BullMQ Worker Pipeline
+├── NestJS API & Next.js Dashboard
+└── GitHub PR Summary Comment (Idempotent)
+```
+
+1. **Java Context Extraction:** Tree-sitter parses modified `.java` files and extracts method signatures, parameters, return types, and method code.
+2. **LLM Generation:** Uses structured Zod validation to generate JUnit 5 + Mockito unit tests covering normal, edge case, and error scenarios.
+3. **Docker Sandbox Execution:** Compiles and executes tests inside an ephemeral, network-isolated container (`--network none`, `--memory 512m`, `--cpus 1`, `--security-opt no-new-privileges`).
+4. **Persistence & Exposure:** Stores execution status (`PASSED`, `FAILED`, `REJECTED`, `TIMEOUT`) in PostgreSQL, exposed via NestJS API & Next.js Dashboard.
+5. **GitHub Integration:** Posts/updates an idempotent summary comment on the Pull Request (`<!-- ai-code-review-test-generation -->`).
+
+
 ## Develop without Docker
 
 ```bash
