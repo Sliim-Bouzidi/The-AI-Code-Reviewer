@@ -97,6 +97,17 @@ export const ReviewMetricsSchema = z.object({
   tier2Calls: z.number().int().nonnegative().optional(),
   missingAlerts: z.number().int().nonnegative().optional(),
   fallbackAlerts: z.number().int().nonnegative().optional(),
+  // Cache metrics (Étape 5)
+  cacheHits: z.number().int().nonnegative().optional(),
+  cacheMisses: z.number().int().nonnegative().optional(),
+  cacheHitRatio: z.number().min(0).max(1).optional(),
+  avoidedLlmCalls: z.number().int().nonnegative().optional(),
+  savedTokensIn: z.number().int().nonnegative().optional(),
+  savedTokensOut: z.number().int().nonnegative().optional(),
+  estimatedSavedCostUsd: z.number().nonnegative().optional(),
+  cacheErrors: z.number().int().nonnegative().optional(),
+  tier1CacheHits: z.number().int().nonnegative().optional(),
+  tier2CacheHits: z.number().int().nonnegative().optional(),
   alertFinalStates: z.array(
     z.object({
       alertId: z.string(),

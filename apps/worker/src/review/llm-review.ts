@@ -9,6 +9,8 @@ import type { TargetedContextOptions } from './targeted-context.js';
 import type { ParsedFile } from '../index/symbols.js';
 import { buildAlertBatches, buildBatchEscalationPrompt, buildBatchPrompt } from './batch-builder.js';
 import type { AlertBatch, AlertBatchItem, BatchingOptions } from './batch-builder.js';
+import { createCacheKey, estimateSavedCostUsd } from './llm-cache.js';
+import type { CacheEntry, LlmCacheStore } from './llm-cache.js';
 
 export const SYSTEM_PROMPT = `You are a senior engineer reviewing one file of a pull request.
 Report only real problems in the CHANGED lines (marked "+"): bugs, security issues, performance
@@ -450,6 +452,8 @@ export async function reviewFile(
 export interface BatchReviewOptions {
   batching?: BatchingOptions;
   powerfulLlm?: LlmProvider[];
+  cacheStore?: LlmCacheStore;
+  enableCache?: boolean;
   escalationPolicy?: {
     escalateOnUncertain?: boolean;
     escalateOnHighSeverity?: boolean;
@@ -469,7 +473,7 @@ export interface BatchReviewResult {
 }
 
 /**
- * Step 4: Multi-file / multi-alert batch review with two-tier intelligent routing.
+ * Step 4 & 5: Multi-file / multi-alert batch review with two-tier intelligent routing and persistent cache.
  */
 export async function reviewBatches(
   llm: LlmProvider[],
@@ -484,6 +488,8 @@ export async function reviewBatches(
 ): Promise<BatchReviewResult> {
   const policy = options?.escalationPolicy ?? {};
   const powerfulProviders = options?.powerfulLlm && options.powerfulLlm.length > 0 ? options.powerfulLlm : llm;
+  const cacheStore = options?.cacheStore;
+  const enableCache = options?.enableCache !== false && cacheStore != null;
 
   // 1. Build initial Tier-1 batches
   const batches = await buildAlertBatches(files, fileContents, parsedFiles, semgrepAlerts, options?.batching);
@@ -494,6 +500,17 @@ export async function reviewBatches(
   let tier2Calls = 0;
   let missingAlerts = 0;
   let fallbackAlerts = 0;
+
+  // Cache metrics
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  let tier1CacheHits = 0;
+  let tier2CacheHits = 0;
+  let avoidedLlmCalls = 0;
+  let savedTokensIn = 0;
+  let savedTokensOut = 0;
+  let cacheErrors = 0;
+
   let t1Provider = llm[0]?.name ?? 'unknown';
   let t1Model = llm[0]?.model ?? 'unknown';
 
@@ -502,9 +519,64 @@ export async function reviewBatches(
   const batchSummaries: string[] = [];
   let totalLatencyMs = 0;
 
-  // 2. Execute Tier-1 LLM calls on batches
+  // 2. Execute Tier-1 LLM calls on batches (with item-level cache lookup)
   for (const batch of batches) {
-    const prompt = buildBatchPrompt(batch, rules, strictness, codebaseContextMap);
+    const uncachedItems: AlertBatchItem[] = [];
+
+    // Check item-level cache for each alert in the batch
+    for (const item of batch.items) {
+      if (item.isSyntheticFileItem || !enableCache || !cacheStore) {
+        uncachedItems.push(item);
+        continue;
+      }
+
+      const key = createCacheKey({
+        targetedContext: item.targetedContext,
+        alert: item,
+        tier: 1,
+        provider: t1Provider,
+        model: t1Model,
+        rules,
+        strictness,
+        escalationPolicy: policy,
+      });
+
+      let cached: CacheEntry | null = null;
+      try {
+        cached = await cacheStore.get(key);
+      } catch {
+        cacheErrors++;
+      }
+
+      if (cached) {
+        cacheHits++;
+        tier1CacheHits++;
+        t1DecisionsMap.set(item.id, { decision: cached.decision, reason: cached.reason });
+        savedTokensIn += cached.tokensIn;
+        savedTokensOut += cached.tokensOut;
+        if (cached.findings) t1LlmFindings.push(...cached.findings);
+      } else {
+        cacheMisses++;
+        uncachedItems.push(item);
+      }
+    }
+
+    // If ALL items in this batch hit the cache, skip the LLM call entirely!
+    if (uncachedItems.length === 0 && batch.items.length > 0) {
+      avoidedLlmCalls++;
+      batchSummaries.push('Batch evaluated from cache');
+      continue;
+    }
+
+    // Build sub-batch for uncached items
+    const subBatch: AlertBatch = {
+      id: `${batch.id}-uncached`,
+      items: uncachedItems,
+      fileContexts: batch.fileContexts,
+      totalEstimatedTokens: uncachedItems.reduce((sum, i) => sum + i.estimatedTokens, 0),
+    };
+
+    const prompt = buildBatchPrompt(subBatch, rules, strictness, codebaseContextMap);
     const startMs = Date.now();
     tier1Calls++;
 
@@ -527,6 +599,35 @@ export async function reviewBatches(
         for (const d of res1.data.semgrep_decisions) {
           if (['CONFIRMED', 'REJECTED', 'UNCERTAIN'].includes(d.decision)) {
             t1DecisionsMap.set(d.alert_id, { decision: d.decision as SemgrepDecisionState, reason: d.reason ?? '' });
+
+            // Store valid decisions in cache
+            if (enableCache && cacheStore) {
+              const matchedItem = uncachedItems.find((i) => i.id === d.alert_id);
+              if (matchedItem) {
+                const key = createCacheKey({
+                  targetedContext: matchedItem.targetedContext,
+                  alert: matchedItem,
+                  tier: 1,
+                  provider: t1Provider,
+                  model: t1Model,
+                  rules,
+                  strictness,
+                  escalationPolicy: policy,
+                });
+                cacheStore
+                  .set(key, {
+                    decision: d.decision as SemgrepDecisionState,
+                    reason: d.reason ?? '',
+                    provider: t1Provider,
+                    model: t1Model,
+                    tier: 1,
+                    tokensIn: res1.tokensIn,
+                    tokensOut: res1.tokensOut,
+                    createdAt: new Date().toISOString(),
+                  })
+                  .catch(() => cacheErrors++);
+              }
+            }
           }
         }
       }
@@ -548,7 +649,7 @@ export async function reviewBatches(
       }
     } catch {
       totalLatencyMs += Date.now() - startMs;
-      // On Tier 1 batch failure, all alerts in this batch are unverified (missing)
+      // On Tier 1 batch failure, all items in this sub-batch are unverified (missing)
     }
   }
 
@@ -590,87 +691,160 @@ export async function reviewBatches(
   let t2Provider: string | null = null;
   let t2Model: string | null = null;
 
-  // 4. Execute Tier-2 LLM calls on escalated batches
+  // 4. Execute Tier-2 LLM calls on escalated batches (with Tier 2 cache lookup)
   if (shouldEscalate) {
-    // Re-pack escalated items into Tier-2 batches
-    const escalatedBatches: AlertBatch[] = [];
-    let curItems: AlertBatchItem[] = [];
-    let curContexts = new Map<string, string>();
-    let curTokens = 0;
-    let escIndex = 1;
-
-    const maxAlerts = options?.batching?.maxAlertsPerBatch ?? 5;
-    const maxTokens = options?.batching?.maxBatchTokens ?? 6000;
+    const uncachedTier2Items: AlertBatchItem[] = [];
+    t2Provider = powerfulProviders[0]?.name ?? 'fallback';
+    t2Model = powerfulProviders[0]?.model ?? 'none';
 
     for (const item of itemsToEscalate) {
-      if (curItems.length >= maxAlerts || (curItems.length > 0 && curTokens + item.estimatedTokens > maxTokens)) {
+      if (!enableCache || !cacheStore) {
+        uncachedTier2Items.push(item);
+        continue;
+      }
+
+      const t2Key = createCacheKey({
+        targetedContext: item.targetedContext,
+        alert: item,
+        tier: 2,
+        provider: t2Provider,
+        model: t2Model,
+        rules,
+        strictness,
+        escalationPolicy: policy,
+      });
+
+      let cached: CacheEntry | null = null;
+      try {
+        cached = await cacheStore.get(t2Key);
+      } catch {
+        cacheErrors++;
+      }
+
+      if (cached) {
+        cacheHits++;
+        tier2CacheHits++;
+        t2DecisionsMap.set(item.id, { decision: cached.decision, reason: cached.reason });
+        savedTokensIn += cached.tokensIn;
+        savedTokensOut += cached.tokensOut;
+        if (cached.findings) t2LlmFindings.push(...cached.findings);
+      } else {
+        cacheMisses++;
+        uncachedTier2Items.push(item);
+      }
+    }
+
+    if (uncachedTier2Items.length === 0 && itemsToEscalate.length > 0) {
+      avoidedLlmCalls++;
+    } else {
+      // Re-pack uncached escalated items into Tier-2 batches
+      const escalatedBatches: AlertBatch[] = [];
+      let curItems: AlertBatchItem[] = [];
+      let curContexts = new Map<string, string>();
+      let curTokens = 0;
+      let escIndex = 1;
+
+      const maxAlerts = options?.batching?.maxAlertsPerBatch ?? 5;
+      const maxTokens = options?.batching?.maxBatchTokens ?? 6000;
+
+      for (const item of uncachedTier2Items) {
+        if (curItems.length >= maxAlerts || (curItems.length > 0 && curTokens + item.estimatedTokens > maxTokens)) {
+          escalatedBatches.push({
+            id: `tier2-batch-${escIndex++}`,
+            items: curItems,
+            fileContexts: curContexts,
+            totalEstimatedTokens: curTokens,
+          });
+          curItems = [];
+          curContexts = new Map<string, string>();
+          curTokens = 0;
+        }
+        curItems.push(item);
+        curContexts.set(item.filePath, item.targetedContext);
+        curTokens += item.estimatedTokens;
+      }
+      if (curItems.length > 0) {
         escalatedBatches.push({
           id: `tier2-batch-${escIndex++}`,
           items: curItems,
           fileContexts: curContexts,
           totalEstimatedTokens: curTokens,
         });
-        curItems = [];
-        curContexts = new Map<string, string>();
-        curTokens = 0;
       }
-      curItems.push(item);
-      curContexts.set(item.filePath, item.targetedContext);
-      curTokens += item.estimatedTokens;
-    }
-    if (curItems.length > 0) {
-      escalatedBatches.push({
-        id: `tier2-batch-${escIndex++}`,
-        items: curItems,
-        fileContexts: curContexts,
-        totalEstimatedTokens: curTokens,
-      });
-    }
 
-    for (const escBatch of escalatedBatches) {
-      const escPrompt = buildBatchEscalationPrompt(escBatch, rules, strictness, t1DecisionsMap, codebaseContextMap);
-      const startMs = Date.now();
-      tier2Calls++;
+      for (const escBatch of escalatedBatches) {
+        const escPrompt = buildBatchEscalationPrompt(escBatch, rules, strictness, t1DecisionsMap, codebaseContextMap);
+        const startMs = Date.now();
+        tier2Calls++;
 
-      try {
-        const res2 = await generateJson(powerfulProviders, {
-          system: SYSTEM_PROMPT,
-          prompt: escPrompt,
-          schema: LlmReviewOutputSchema,
-        });
+        try {
+          const res2 = await generateJson(powerfulProviders, {
+            system: SYSTEM_PROMPT,
+            prompt: escPrompt,
+            schema: LlmReviewOutputSchema,
+          });
 
-        totalLatencyMs += Date.now() - startMs;
-        totalTokensIn += res2.tokensIn;
-        totalTokensOut += res2.tokensOut;
-        t2Provider = res2.provider;
-        t2Model = res2.model;
+          totalLatencyMs += Date.now() - startMs;
+          totalTokensIn += res2.tokensIn;
+          totalTokensOut += res2.tokensOut;
+          t2Provider = res2.provider;
+          t2Model = res2.model;
 
-        if (res2.data.semgrep_decisions) {
-          for (const d of res2.data.semgrep_decisions) {
-            if (['CONFIRMED', 'REJECTED', 'UNCERTAIN'].includes(d.decision)) {
-              t2DecisionsMap.set(d.alert_id, { decision: d.decision as SemgrepDecisionState, reason: d.reason ?? '' });
+          if (res2.data.semgrep_decisions) {
+            for (const d of res2.data.semgrep_decisions) {
+              if (['CONFIRMED', 'REJECTED', 'UNCERTAIN'].includes(d.decision)) {
+                t2DecisionsMap.set(d.alert_id, { decision: d.decision as SemgrepDecisionState, reason: d.reason ?? '' });
+
+                if (enableCache && cacheStore) {
+                  const matchedItem = uncachedTier2Items.find((i) => i.id === d.alert_id);
+                  if (matchedItem) {
+                    const t2Key = createCacheKey({
+                      targetedContext: matchedItem.targetedContext,
+                      alert: matchedItem,
+                      tier: 2,
+                      provider: t2Provider,
+                      model: t2Model,
+                      rules,
+                      strictness,
+                      escalationPolicy: policy,
+                    });
+                    cacheStore
+                      .set(t2Key, {
+                        decision: d.decision as SemgrepDecisionState,
+                        reason: d.reason ?? '',
+                        provider: t2Provider,
+                        model: t2Model,
+                        tier: 2,
+                        tokensIn: res2.tokensIn,
+                        tokensOut: res2.tokensOut,
+                        createdAt: new Date().toISOString(),
+                      })
+                      .catch(() => cacheErrors++);
+                  }
+                }
+              }
             }
           }
-        }
 
-        if (res2.data.findings) {
-          for (const f of res2.data.findings) {
-            t2LlmFindings.push({
-              filePath: f.file,
-              lineStart: f.line_start,
-              lineEnd: f.line_end ?? null,
-              severity: f.severity,
-              category: f.category,
-              source: 'llm' as const,
-              message: f.message,
-              suggestion: f.suggestion ?? null,
-              confidence: f.confidence,
-            });
+          if (res2.data.findings) {
+            for (const f of res2.data.findings) {
+              t2LlmFindings.push({
+                filePath: f.file,
+                lineStart: f.line_start,
+                lineEnd: f.line_end ?? null,
+                severity: f.severity,
+                category: f.category,
+                source: 'llm' as const,
+                message: f.message,
+                suggestion: f.suggestion ?? null,
+                confidence: f.confidence,
+              });
+            }
           }
+        } catch {
+          totalLatencyMs += Date.now() - startMs;
+          // Tier 2 batch failure -> fallback handled below
         }
-      } catch {
-        totalLatencyMs += Date.now() - startMs;
-        // Tier 2 batch failure -> fallback handled below
       }
     }
   }
@@ -745,6 +919,9 @@ export async function reviewBatches(
 
   const summary = batchSummaries.length > 0 ? batchSummaries.join(' | ') : 'Batch review completed';
 
+  const totalItemCount = cacheHits + cacheMisses;
+  const cacheHitRatio = totalItemCount > 0 ? cacheHits / totalItemCount : 0;
+
   return {
     summary,
     findings: [...combinedLlmFindings, ...evaluatedSemgrepFindings],
@@ -767,6 +944,16 @@ export async function reviewBatches(
       tier2Calls,
       missingAlerts,
       fallbackAlerts,
+      cacheHits,
+      cacheMisses,
+      cacheHitRatio,
+      avoidedLlmCalls,
+      savedTokensIn,
+      savedTokensOut,
+      estimatedSavedCostUsd: estimateSavedCostUsd(savedTokensIn, savedTokensOut),
+      cacheErrors,
+      tier1CacheHits,
+      tier2CacheHits,
       tokensIn: totalTokensIn,
       tokensOut: totalTokensOut,
       latencyMs: totalLatencyMs,
@@ -774,4 +961,5 @@ export async function reviewBatches(
     },
   };
 }
+
 

@@ -20,6 +20,7 @@ import { emit, STAGE_LABELS, timed } from './events.js';
 import type { Stage } from './events.js';
 import { filterReviewable } from './filter.js';
 import { reviewBatches, reviewFile } from './llm-review.js';
+import { DbLlmCacheStore } from './llm-cache.js';
 import { runSemgrep } from './semgrep.js';
 import { validateAndRank } from './validate.js';
 
@@ -204,6 +205,8 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
         settings.strictness,
         {
           powerfulLlm,
+          cacheStore: new DbLlmCacheStore(deps.db),
+          enableCache: true,
         },
       );
 

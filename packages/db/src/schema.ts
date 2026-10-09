@@ -389,3 +389,24 @@ export const generatedTests = pgTable(
   },
   (t) => [index('generated_tests_generation').on(t.generationId)],
 );
+
+/**
+ * Cache store for LLM analysis decisions & findings (Étape 5).
+ * Stores SHA-256 hashed keys of canonical prompts/contexts/alerts to eliminate redundant LLM calls.
+ */
+export const llmCache = pgTable(
+  'llm_cache',
+  {
+    cacheKey: text('cache_key').primaryKey(),
+    tier: integer('tier').notNull().default(1),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    data: jsonb('data').notNull(),
+    tokensIn: integer('tokens_in').notNull().default(0),
+    tokensOut: integer('tokens_out').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+  },
+  (t) => [index('llm_cache_created').on(t.createdAt)],
+);
+
