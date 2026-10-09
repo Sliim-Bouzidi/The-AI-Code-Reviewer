@@ -6,6 +6,9 @@ import type { ContextChunk } from './context.js';
 import type { DiffFile } from './diff.js';
 import { renderTargetedContextForLlm } from './targeted-context.js';
 import type { TargetedContextOptions } from './targeted-context.js';
+import type { ParsedFile } from '../index/symbols.js';
+import { buildAlertBatches, buildBatchEscalationPrompt, buildBatchPrompt } from './batch-builder.js';
+import type { AlertBatch, AlertBatchItem, BatchingOptions } from './batch-builder.js';
 
 export const SYSTEM_PROMPT = `You are a senior engineer reviewing one file of a pull request.
 Report only real problems in the CHANGED lines (marked "+"): bugs, security issues, performance
@@ -443,3 +446,332 @@ export async function reviewFile(
     },
   };
 }
+
+export interface BatchReviewOptions {
+  batching?: BatchingOptions;
+  powerfulLlm?: LlmProvider[];
+  escalationPolicy?: {
+    escalateOnUncertain?: boolean;
+    escalateOnHighSeverity?: boolean;
+    escalateOnInvalidResponse?: boolean;
+    escalateOnLowConfidence?: boolean;
+  };
+}
+
+export interface BatchReviewResult {
+  summary: string;
+  findings: CandidateFinding[];
+  provider: string;
+  model: string;
+  tokensIn: number;
+  tokensOut: number;
+  metrics: ReviewMetrics;
+}
+
+/**
+ * Step 4: Multi-file / multi-alert batch review with two-tier intelligent routing.
+ */
+export async function reviewBatches(
+  llm: LlmProvider[],
+  files: DiffFile[],
+  fileContents: Map<string, string>,
+  parsedFiles: Map<string, ParsedFile>,
+  semgrepAlerts: SemgrepAlert[],
+  codebaseContextMap: Map<string, ContextChunk[]>,
+  rules: CustomRule[],
+  strictness: Strictness,
+  options?: BatchReviewOptions,
+): Promise<BatchReviewResult> {
+  const policy = options?.escalationPolicy ?? {};
+  const powerfulProviders = options?.powerfulLlm && options.powerfulLlm.length > 0 ? options.powerfulLlm : llm;
+
+  // 1. Build initial Tier-1 batches
+  const batches = await buildAlertBatches(files, fileContents, parsedFiles, semgrepAlerts, options?.batching);
+
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  let tier1Calls = 0;
+  let tier2Calls = 0;
+  let missingAlerts = 0;
+  let fallbackAlerts = 0;
+  let t1Provider = llm[0]?.name ?? 'unknown';
+  let t1Model = llm[0]?.model ?? 'unknown';
+
+  const t1DecisionsMap = new Map<string, { decision: SemgrepDecisionState; reason: string }>();
+  const t1LlmFindings: CandidateFinding[] = [];
+  const batchSummaries: string[] = [];
+  let totalLatencyMs = 0;
+
+  // 2. Execute Tier-1 LLM calls on batches
+  for (const batch of batches) {
+    const prompt = buildBatchPrompt(batch, rules, strictness, codebaseContextMap);
+    const startMs = Date.now();
+    tier1Calls++;
+
+    try {
+      const res1 = await generateJson(llm, {
+        system: SYSTEM_PROMPT,
+        prompt,
+        schema: LlmReviewOutputSchema,
+      });
+
+      totalLatencyMs += Date.now() - startMs;
+      totalTokensIn += res1.tokensIn;
+      totalTokensOut += res1.tokensOut;
+      t1Provider = res1.provider;
+      t1Model = res1.model;
+
+      if (res1.data.summary) batchSummaries.push(res1.data.summary);
+
+      if (res1.data.semgrep_decisions) {
+        for (const d of res1.data.semgrep_decisions) {
+          if (['CONFIRMED', 'REJECTED', 'UNCERTAIN'].includes(d.decision)) {
+            t1DecisionsMap.set(d.alert_id, { decision: d.decision as SemgrepDecisionState, reason: d.reason ?? '' });
+          }
+        }
+      }
+
+      if (res1.data.findings) {
+        for (const f of res1.data.findings) {
+          t1LlmFindings.push({
+            filePath: f.file,
+            lineStart: f.line_start,
+            lineEnd: f.line_end ?? null,
+            severity: f.severity,
+            category: f.category,
+            source: 'llm' as const,
+            message: f.message,
+            suggestion: f.suggestion ?? null,
+            confidence: f.confidence,
+          });
+        }
+      }
+    } catch {
+      totalLatencyMs += Date.now() - startMs;
+      // On Tier 1 batch failure, all alerts in this batch are unverified (missing)
+    }
+  }
+
+  // 3. Identify alerts requiring Tier-2 escalation
+  const itemsToEscalate: AlertBatchItem[] = [];
+  let globalEscalationReason: string | null = null;
+
+  for (const batch of batches) {
+    for (const item of batch.items) {
+      if (item.isSyntheticFileItem) continue;
+
+      const dec = t1DecisionsMap.get(item.id);
+      let escalateThis = false;
+
+      // Trigger 1: UNCERTAIN decision or missing decision
+      if (!dec) {
+        escalateThis = true;
+        globalEscalationReason ??= `Missing decision for alert ${item.id}`;
+      } else if (dec.decision === 'UNCERTAIN' && policy.escalateOnUncertain !== false) {
+        escalateThis = true;
+        globalEscalationReason ??= `UNCERTAIN decision on alert ${item.id}`;
+      }
+
+      // Trigger 2: High or Critical severity alert
+      if (['critical', 'high'].includes(item.severity) && policy.escalateOnHighSeverity !== false) {
+        escalateThis = true;
+        globalEscalationReason ??= `High/Critical severity alert ${item.ruleId} (${item.severity})`;
+      }
+
+      if (escalateThis && !itemsToEscalate.some((i) => i.id === item.id)) {
+        itemsToEscalate.push(item);
+      }
+    }
+  }
+
+  const shouldEscalate = itemsToEscalate.length > 0 && powerfulProviders.length > 0;
+  const t2DecisionsMap = new Map<string, { decision: SemgrepDecisionState; reason: string }>();
+  const t2LlmFindings: CandidateFinding[] = [];
+  let t2Provider: string | null = null;
+  let t2Model: string | null = null;
+
+  // 4. Execute Tier-2 LLM calls on escalated batches
+  if (shouldEscalate) {
+    // Re-pack escalated items into Tier-2 batches
+    const escalatedBatches: AlertBatch[] = [];
+    let curItems: AlertBatchItem[] = [];
+    let curContexts = new Map<string, string>();
+    let curTokens = 0;
+    let escIndex = 1;
+
+    const maxAlerts = options?.batching?.maxAlertsPerBatch ?? 5;
+    const maxTokens = options?.batching?.maxBatchTokens ?? 6000;
+
+    for (const item of itemsToEscalate) {
+      if (curItems.length >= maxAlerts || (curItems.length > 0 && curTokens + item.estimatedTokens > maxTokens)) {
+        escalatedBatches.push({
+          id: `tier2-batch-${escIndex++}`,
+          items: curItems,
+          fileContexts: curContexts,
+          totalEstimatedTokens: curTokens,
+        });
+        curItems = [];
+        curContexts = new Map<string, string>();
+        curTokens = 0;
+      }
+      curItems.push(item);
+      curContexts.set(item.filePath, item.targetedContext);
+      curTokens += item.estimatedTokens;
+    }
+    if (curItems.length > 0) {
+      escalatedBatches.push({
+        id: `tier2-batch-${escIndex++}`,
+        items: curItems,
+        fileContexts: curContexts,
+        totalEstimatedTokens: curTokens,
+      });
+    }
+
+    for (const escBatch of escalatedBatches) {
+      const escPrompt = buildBatchEscalationPrompt(escBatch, rules, strictness, t1DecisionsMap, codebaseContextMap);
+      const startMs = Date.now();
+      tier2Calls++;
+
+      try {
+        const res2 = await generateJson(powerfulProviders, {
+          system: SYSTEM_PROMPT,
+          prompt: escPrompt,
+          schema: LlmReviewOutputSchema,
+        });
+
+        totalLatencyMs += Date.now() - startMs;
+        totalTokensIn += res2.tokensIn;
+        totalTokensOut += res2.tokensOut;
+        t2Provider = res2.provider;
+        t2Model = res2.model;
+
+        if (res2.data.semgrep_decisions) {
+          for (const d of res2.data.semgrep_decisions) {
+            if (['CONFIRMED', 'REJECTED', 'UNCERTAIN'].includes(d.decision)) {
+              t2DecisionsMap.set(d.alert_id, { decision: d.decision as SemgrepDecisionState, reason: d.reason ?? '' });
+            }
+          }
+        }
+
+        if (res2.data.findings) {
+          for (const f of res2.data.findings) {
+            t2LlmFindings.push({
+              filePath: f.file,
+              lineStart: f.line_start,
+              lineEnd: f.line_end ?? null,
+              severity: f.severity,
+              category: f.category,
+              source: 'llm' as const,
+              message: f.message,
+              suggestion: f.suggestion ?? null,
+              confidence: f.confidence,
+            });
+          }
+        }
+      } catch {
+        totalLatencyMs += Date.now() - startMs;
+        // Tier 2 batch failure -> fallback handled below
+      }
+    }
+  }
+
+  // 5. Reconcile decisions & build final findings
+  const alertFinalStates: ReviewMetrics['alertFinalStates'] = [];
+  const evaluatedSemgrepFindings: CandidateFinding[] = semgrepAlerts.map((a) => {
+    const t1 = t1DecisionsMap.get(a.id);
+    const t2 = t2DecisionsMap.get(a.id);
+
+    let finalDecision: SemgrepDecisionState = 'UNCERTAIN';
+    let finalReason = '';
+
+    if (!t1 && !t2) {
+      missingAlerts++;
+      finalDecision = 'UNCERTAIN';
+      finalReason = 'Missing decision from LLM batch output';
+    } else if (itemsToEscalate.some((i) => i.id === a.id) && !t2 && tier2Calls > 0) {
+      // Tier 2 failed/timed out for this escalated alert
+      fallbackAlerts++;
+      finalDecision = 'UNCERTAIN';
+      finalReason = 'Tier-2 LLM evaluation failed or timed out';
+    } else if (t1 && t2) {
+      if (t1.decision !== 'UNCERTAIN' && t2.decision !== 'UNCERTAIN' && t1.decision !== t2.decision) {
+        finalDecision = 'UNCERTAIN';
+        finalReason = `Disagreement between models: Tier-1 (${t1.decision}: ${t1.reason}) vs Tier-2 (${t2.decision}: ${t2.reason})`;
+      } else {
+        const chosen = t2.decision !== 'UNCERTAIN' ? t2 : t1;
+        finalDecision = chosen.decision;
+        finalReason = chosen.reason;
+      }
+    } else if (t2) {
+      finalDecision = t2.decision;
+      finalReason = t2.reason;
+    } else {
+      finalDecision = t1!.decision;
+      finalReason = t1!.reason;
+    }
+
+    alertFinalStates.push({
+      alertId: a.id,
+      ruleId: a.ruleId,
+      filePath: a.filePath,
+      tier1Decision: t1?.decision,
+      tier2Decision: t2?.decision,
+      finalDecision,
+      reason: finalReason,
+    });
+
+    return {
+      filePath: a.filePath,
+      lineStart: a.lineStart,
+      lineEnd: a.lineEnd,
+      severity: a.severity,
+      category: a.category,
+      source: 'semgrep' as const,
+      message: a.message,
+      suggestion: null,
+      confidence: finalDecision === 'CONFIRMED' ? 0.95 : finalDecision === 'REJECTED' ? 0.1 : 0.7,
+      ruleId: a.ruleId,
+      semgrepDecision: finalDecision,
+      semgrepReason: finalReason,
+      tier1Decision: t1?.decision,
+      tier2Decision: t2?.decision,
+    };
+  });
+
+  const combinedLlmFindings = t2LlmFindings.length > 0 ? t2LlmFindings : t1LlmFindings;
+
+  // Calculate estimated total tokens across all batches
+  const totalEstimatedTokens = batches.reduce((sum, b) => sum + b.totalEstimatedTokens, 0);
+
+  const summary = batchSummaries.length > 0 ? batchSummaries.join(' | ') : 'Batch review completed';
+
+  return {
+    summary,
+    findings: [...combinedLlmFindings, ...evaluatedSemgrepFindings],
+    provider: t2Provider ?? t1Provider,
+    model: t2Model ?? t1Model,
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
+    metrics: {
+      triageProvider: t1Provider,
+      triageModel: t1Model,
+      escalated: shouldEscalate,
+      escalationReason: shouldEscalate ? globalEscalationReason : null,
+      escalationProvider: t2Provider,
+      escalationModel: t2Model,
+      totalCalls: tier1Calls + tier2Calls,
+      totalAlerts: semgrepAlerts.length,
+      totalBatches: batches.length,
+      estimatedBatchTokens: totalEstimatedTokens,
+      tier1Calls,
+      tier2Calls,
+      missingAlerts,
+      fallbackAlerts,
+      tokensIn: totalTokensIn,
+      tokensOut: totalTokensOut,
+      latencyMs: totalLatencyMs,
+      alertFinalStates,
+    },
+  };
+}
+

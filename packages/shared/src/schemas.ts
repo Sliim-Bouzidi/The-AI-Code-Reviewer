@@ -89,10 +89,19 @@ export const ReviewMetricsSchema = z.object({
   tokensIn: z.number().int().nonnegative(),
   tokensOut: z.number().int().nonnegative(),
   latencyMs: z.number().nonnegative(),
+  // Batching metrics (Étape 4)
+  totalAlerts: z.number().int().nonnegative().optional(),
+  totalBatches: z.number().int().nonnegative().optional(),
+  estimatedBatchTokens: z.number().int().nonnegative().optional(),
+  tier1Calls: z.number().int().nonnegative().optional(),
+  tier2Calls: z.number().int().nonnegative().optional(),
+  missingAlerts: z.number().int().nonnegative().optional(),
+  fallbackAlerts: z.number().int().nonnegative().optional(),
   alertFinalStates: z.array(
     z.object({
       alertId: z.string(),
       ruleId: z.string(),
+      filePath: z.string().optional(),
       tier1Decision: SemgrepDecisionStateSchema.optional(),
       tier2Decision: SemgrepDecisionStateSchema.optional(),
       finalDecision: SemgrepDecisionStateSchema,

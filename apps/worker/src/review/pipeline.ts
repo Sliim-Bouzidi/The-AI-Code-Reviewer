@@ -19,7 +19,7 @@ import { parseUnifiedDiff } from './diff.js';
 import { emit, STAGE_LABELS, timed } from './events.js';
 import type { Stage } from './events.js';
 import { filterReviewable } from './filter.js';
-import { reviewFile } from './llm-review.js';
+import { reviewBatches, reviewFile } from './llm-review.js';
 import { runSemgrep } from './semgrep.js';
 import { validateAndRank } from './validate.js';
 
@@ -169,68 +169,60 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
     );
     await progress('context');
 
-    // ---- 6. LLM review, one call per file
+    // ---- 6. LLM review with multi-file alert batching
     let tokensIn = 0;
     let tokensOut = 0;
     let provider: string | null = null;
     let model: string | null = null;
     let failedFiles = 0;
-    await emit(db, review.id, 'llm', 'running', `0/${files.length} files`);
+    await emit(db, review.id, 'llm', 'running', `Batching analysis across ${files.length} file(s)`);
     const llmStart = Date.now();
-    let reviewedCount = 0;
-    for (const file of files) {
-      try {
-        const fileSemgrep = candidates.filter((c) => c.filePath === file.path && c.source === 'semgrep');
-        const semgrepAlerts: SemgrepAlert[] = fileSemgrep.map((s, idx) => ({
-          id: `semgrep-${file.path}-${s.lineStart}-${idx + 1}`,
-          ruleId: s.ruleId ?? 'semgrep-rule',
-          filePath: s.filePath,
-          lineStart: s.lineStart,
-          lineEnd: s.lineEnd,
-          severity: s.severity,
-          category: s.category,
-          message: s.message,
-        }));
 
-        const findingLines = candidates
-          .filter((c) => c.filePath === file.path && c.lineStart != null)
-          .map((c) => c.lineStart!);
+    try {
+      const semgrepCandidates = candidates.filter((c) => c.source === 'semgrep');
+      const allSemgrepAlerts: SemgrepAlert[] = semgrepCandidates.map((s, idx) => ({
+        id: `semgrep-${s.filePath}-${s.lineStart}-${idx + 1}`,
+        ruleId: s.ruleId ?? 'semgrep-rule',
+        filePath: s.filePath,
+        lineStart: s.lineStart,
+        lineEnd: s.lineEnd,
+        severity: s.severity,
+        category: s.category,
+        message: s.message,
+      }));
 
-        const powerfulLlm = deps.llm.length > 1 ? deps.llm.slice(1) : deps.llm;
+      const powerfulLlm = deps.llm.length > 1 ? deps.llm.slice(1) : deps.llm;
 
-        const res = await reviewFile(
-          deps.llm,
-          file,
-          context.get(file.path) ?? [],
-          settings.customRules,
-          settings.strictness,
-          {
-            fileContent: fileContents.get(file.path),
-            parsed: parsedFiles.get(file.path),
-            findingLines,
-            semgrepAlerts,
-            powerfulLlm,
-          },
-        );
+      const res = await reviewBatches(
+        deps.llm,
+        files,
+        fileContents,
+        parsedFiles,
+        allSemgrepAlerts,
+        context,
+        settings.customRules,
+        settings.strictness,
+        {
+          powerfulLlm,
+        },
+      );
 
-        // Replace raw un-evaluated Semgrep findings for this file with evaluated ones
-        for (let i = candidates.length - 1; i >= 0; i--) {
-          if (candidates[i]!.filePath === file.path && candidates[i]!.source === 'semgrep') {
-            candidates.splice(i, 1);
-          }
+      // Replace raw un-evaluated Semgrep findings with evaluated ones
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        if (candidates[i]!.source === 'semgrep') {
+          candidates.splice(i, 1);
         }
-        candidates.push(...res.findings);
-        tokensIn += res.tokensIn;
-        tokensOut += res.tokensOut;
-        provider = res.provider;
-        model = res.model;
-      } catch (err) {
-        failedFiles++;
-        log('review', 'file review failed', { reviewId: review.id, error: (err as Error).message.slice(0, 200) });
       }
-      reviewedCount++;
-      await emit(db, review.id, 'llm', 'running', `${reviewedCount}/${files.length} files — ${file.path}`);
+      candidates.push(...res.findings);
+      tokensIn = res.tokensIn;
+      tokensOut = res.tokensOut;
+      provider = res.provider;
+      model = res.model;
+    } catch (err) {
+      failedFiles = files.length;
+      log('review', 'batch review failed', { reviewId: review.id, error: (err as Error).message.slice(0, 200) });
     }
+
     if (files.length > 0 && failedFiles === files.length) {
       await emit(db, review.id, 'llm', 'failed', 'the LLM failed on every file', Date.now() - llmStart);
       throw new Error('the LLM failed on every file');
