@@ -5,7 +5,7 @@ import {
   eq, findings as findingsTable, installations, pullRequests, repoSettings, repositories, reviewEvents, reviews,
 } from '@codereview/db';
 import { CHANNELS, DEFAULT_REPO_SETTINGS } from '@codereview/shared';
-import type { CandidateFinding, RepoSettings, ReviewJobData } from '@codereview/shared';
+import type { CandidateFinding, RepoSettings, ReviewJobData, SemgrepAlert } from '@codereview/shared';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
 import { changedSymbols, parseFile } from '../index/symbols.js';
@@ -180,6 +180,18 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
     let reviewedCount = 0;
     for (const file of files) {
       try {
+        const fileSemgrep = candidates.filter((c) => c.filePath === file.path && c.source === 'semgrep');
+        const semgrepAlerts: SemgrepAlert[] = fileSemgrep.map((s, idx) => ({
+          id: `semgrep-${file.path}-${s.lineStart}-${idx + 1}`,
+          ruleId: s.ruleId ?? 'semgrep-rule',
+          filePath: s.filePath,
+          lineStart: s.lineStart,
+          lineEnd: s.lineEnd,
+          severity: s.severity,
+          category: s.category,
+          message: s.message,
+        }));
+
         const findingLines = candidates
           .filter((c) => c.filePath === file.path && c.lineStart != null)
           .map((c) => c.lineStart!);
@@ -194,8 +206,16 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
             fileContent: fileContents.get(file.path),
             parsed: parsedFiles.get(file.path),
             findingLines,
+            semgrepAlerts,
           },
         );
+
+        // Replace raw un-evaluated Semgrep findings for this file with evaluated ones
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          if (candidates[i]!.filePath === file.path && candidates[i]!.source === 'semgrep') {
+            candidates.splice(i, 1);
+          }
+        }
         candidates.push(...res.findings);
         tokensIn += res.tokensIn;
         tokensOut += res.tokensOut;

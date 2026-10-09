@@ -34,6 +34,7 @@ export function runSemgrep(dir: string): Promise<CandidateFinding[]> {
               message: `${r.extra?.message ?? r.check_id} (${r.check_id})`,
               suggestion: r.extra?.fix ?? null,
               confidence: 0.9,
+              ruleId: r.check_id ?? 'semgrep-rule',
             })),
           );
         } catch {

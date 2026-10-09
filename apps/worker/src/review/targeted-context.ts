@@ -1,3 +1,4 @@
+import type { SemgrepAlert } from '@codereview/shared';
 import type { DiffFile, DiffHunk } from './diff.js';
 import type { ParsedFile, Symbol } from '../index/symbols.js';
 import { parseFile } from '../index/symbols.js';
@@ -9,6 +10,8 @@ export interface TargetedContextOptions {
   parsed?: ParsedFile | null;
   /** Line numbers flagged by static analysis/Semgrep */
   findingLines?: number[];
+  /** Semgrep alerts relevant to this file */
+  semgrepAlerts?: SemgrepAlert[];
   /** Maximum context size in characters (default: 4000) */
   maxChars?: number;
   /** Surrounding line padding when extracting windows around changed lines (default: 5) */
@@ -48,7 +51,14 @@ export async function extractTargetedContext(
   const linePadding = options.linePadding ?? 5;
   let fileContent = options.fileContent ?? null;
   let parsed = options.parsed ?? null;
-  const findingLines = options.findingLines ?? [];
+  const findingLines = [...(options.findingLines ?? [])];
+  if (options.semgrepAlerts) {
+    for (const a of options.semgrepAlerts) {
+      if (a.filePath === file.path && !findingLines.includes(a.lineStart)) {
+        findingLines.push(a.lineStart);
+      }
+    }
+  }
 
   // Attempt on-the-fly symbol parsing if file content is provided without parsed AST
   if (fileContent && !parsed) {
@@ -102,7 +112,14 @@ export function renderTargetedContextForLlm(
   const linePadding = options.linePadding ?? 5;
   const fileContent = options.fileContent ?? null;
   const parsed = options.parsed ?? null;
-  const findingLines = options.findingLines ?? [];
+  const findingLines = [...(options.findingLines ?? [])];
+  if (options.semgrepAlerts) {
+    for (const a of options.semgrepAlerts) {
+      if (a.filePath === file.path && !findingLines.includes(a.lineStart)) {
+        findingLines.push(a.lineStart);
+      }
+    }
+  }
 
   let formattedText = '';
 

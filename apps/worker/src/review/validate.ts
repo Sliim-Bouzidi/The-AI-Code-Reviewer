@@ -49,7 +49,9 @@ export function validateAndRank(
       if (lineEnd <= lineStart) lineEnd = null;
       else for (let l = lineStart; l <= lineEnd; l++) if (!file.commentableLines.has(l)) { lineEnd = null; break; }
     }
-    // Semgrep is deterministic, so it is not subject to the confidence cut
+    // Semgrep findings explicitly REJECTED by LLM analysis are dropped as false positives
+    if (c.source === 'semgrep' && c.semgrepDecision === 'REJECTED') continue;
+    // LLM findings must meet the confidence threshold for the current strictness
     if (c.source === 'llm' && (c.confidence ?? 0) < MIN_CONFIDENCE[opts.strictness]) continue;
     if (isNitpick(c, opts.strictness)) continue;
     valid.push({ ...c, lineStart, lineEnd });
@@ -69,8 +71,11 @@ export function validateAndRank(
         (k.category === f.category || k.source !== f.source),
     );
     if (dup) {
-      // keep the higher-ranked one, but do not lose a suggested fix
+      // keep the higher-ranked one, but do not lose a suggested fix or semgrep metadata
       dup.suggestion ??= f.suggestion;
+      dup.semgrepDecision ??= f.semgrepDecision;
+      dup.semgrepReason ??= f.semgrepReason;
+      dup.ruleId ??= f.ruleId;
       continue;
     }
     kept.push(f);

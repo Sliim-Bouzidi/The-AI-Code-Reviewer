@@ -18,6 +18,28 @@ export type ReviewTrigger = z.infer<typeof ReviewTriggerSchema>;
 export type IndexStatus = z.infer<typeof IndexStatusSchema>;
 
 // ---------- LLM output (section 7, step 6) ----------
+export const SemgrepDecisionStateSchema = z.enum(['CONFIRMED', 'REJECTED', 'UNCERTAIN']);
+export type SemgrepDecisionState = z.infer<typeof SemgrepDecisionStateSchema>;
+
+export const SemgrepDecisionSchema = z.object({
+  alert_id: z.string(),
+  decision: SemgrepDecisionStateSchema,
+  reason: z.string().default(''),
+});
+export type SemgrepDecision = z.infer<typeof SemgrepDecisionSchema>;
+
+export const SemgrepAlertSchema = z.object({
+  id: z.string(),
+  ruleId: z.string(),
+  filePath: z.string(),
+  lineStart: z.number().int().positive(),
+  lineEnd: z.number().int().positive().nullable(),
+  severity: SeveritySchema,
+  category: CategorySchema,
+  message: z.string(),
+});
+export type SemgrepAlert = z.infer<typeof SemgrepAlertSchema>;
+
 export const LlmFindingSchema = z.object({
   file: z.string().min(1),
   line_start: z.number().int().positive(),
@@ -31,6 +53,7 @@ export const LlmFindingSchema = z.object({
 export const LlmReviewOutputSchema = z.object({
   summary: z.string().default(''),
   findings: z.array(LlmFindingSchema).default([]),
+  semgrep_decisions: z.array(SemgrepDecisionSchema).default([]),
 });
 export type LlmFinding = z.infer<typeof LlmFindingSchema>;
 export type LlmReviewOutput = z.infer<typeof LlmReviewOutputSchema>;
@@ -47,6 +70,9 @@ export const CandidateFindingSchema = z.object({
   message: z.string(),
   suggestion: z.string().nullable(),
   confidence: z.number().min(0).max(1).nullable(),
+  ruleId: z.string().optional(),
+  semgrepDecision: SemgrepDecisionStateSchema.optional(),
+  semgrepReason: z.string().optional(),
 });
 export type CandidateFinding = z.infer<typeof CandidateFindingSchema>;
 
