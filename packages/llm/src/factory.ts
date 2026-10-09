@@ -63,6 +63,44 @@ export function resolveProviders(env: NodeJS.ProcessEnv = process.env): {
   return { primary: make(env, primary, env.LLM_MODEL), fallback: make(env, fallback, env.LLM_FALLBACK_MODEL) };
 }
 
+/**
+ * Resolves separate Economic (triage) and Powerful (deep analysis) provider tiers.
+ * Economic tier uses LLM_PROVIDER_ECONOMIC & LLM_MODEL_ECONOMIC (fallback to LLM_PROVIDER / LLM_MODEL).
+ * Powerful tier uses LLM_PROVIDER_POWERFUL & LLM_MODEL_POWERFUL (fallback to LLM_FALLBACK_PROVIDER / LLM_FALLBACK_MODEL).
+ * If powerful tier is unconfigured or identical, fallback to economic provider list safely.
+ */
+export function createTwoTierProvidersFromEnv(env: NodeJS.ProcessEnv = process.env): {
+  economic: LlmProvider[];
+  powerful: LlmProvider[];
+} {
+  const interval = Number(env.LLM_MIN_INTERVAL_MS ?? 4500);
+
+  const econName = asProvider(env.LLM_PROVIDER_ECONOMIC) ?? asProvider(env.LLM_PROVIDER) ?? 'gemini';
+  const econModel = env.LLM_MODEL_ECONOMIC ?? env.LLM_MODEL;
+  const econProvider = make(env, econName, econModel);
+
+  const powName =
+    asProvider(env.LLM_PROVIDER_POWERFUL) ??
+    asProvider(env.LLM_FALLBACK_PROVIDER) ??
+    asProvider(env.LLM_PROVIDER) ??
+    'gemini';
+  const powModel = env.LLM_MODEL_POWERFUL ?? env.LLM_FALLBACK_MODEL ?? env.LLM_MODEL ?? econModel;
+  const powProvider = make(env, powName, powModel);
+
+  const fallbackName = asProvider(env.LLM_FALLBACK_PROVIDER) ?? (econName === 'gemini' ? 'openrouter' : 'gemini');
+  const fallbackProvider = make(env, fallbackName, env.LLM_FALLBACK_MODEL);
+
+  const baseProviders = createProvidersFromEnv(env);
+
+  const economicList = [econProvider, fallbackProvider].filter((p): p is LlmProvider => p !== null).map((p) => throttled(p, interval));
+  const powerfulList = [powProvider, fallbackProvider].filter((p): p is LlmProvider => p !== null).map((p) => throttled(p, interval));
+
+  return {
+    economic: economicList.length > 0 ? economicList : baseProviders,
+    powerful: powerfulList.length > 0 ? powerfulList : baseProviders,
+  };
+}
+
 /** True when at least one chat provider is usable (shown by the dashboard's setup status). */
 export function llmConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return createProvidersFromEnv(env).length > 0;

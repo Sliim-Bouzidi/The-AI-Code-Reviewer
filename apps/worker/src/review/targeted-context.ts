@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@codereview/llm';
 import type { SemgrepAlert } from '@codereview/shared';
 import type { DiffFile, DiffHunk } from './diff.js';
 import type { ParsedFile, Symbol } from '../index/symbols.js';
@@ -16,6 +17,15 @@ export interface TargetedContextOptions {
   maxChars?: number;
   /** Surrounding line padding when extracting windows around changed lines (default: 5) */
   linePadding?: number;
+  /** Powerful LLM provider tier for escalation (deep verification) */
+  powerfulLlm?: LlmProvider[];
+  /** Optional policy overrides for escalation */
+  escalationPolicy?: {
+    escalateOnUncertain?: boolean;
+    escalateOnHighSeverity?: boolean;
+    escalateOnInvalidResponse?: boolean;
+    escalateOnLowConfidence?: boolean;
+  };
 }
 
 export interface TargetedContextResult {

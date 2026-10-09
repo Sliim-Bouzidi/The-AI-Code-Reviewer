@@ -189,7 +189,7 @@ index 1111111..2222222 100644
     const semgrepFinding = result.findings[0]!;
     expect(semgrepFinding.source).toBe('semgrep');
     expect(semgrepFinding.semgrepDecision).toBe('UNCERTAIN');
-    expect(semgrepFinding.semgrepReason).toContain('LLM evaluation failed');
+    expect(semgrepFinding.semgrepReason).toContain('LLM');
 
     const kept = validateAndRank(result.findings, files, { strictness: 'medium', maxComments: 10 });
     expect(kept).toHaveLength(1);

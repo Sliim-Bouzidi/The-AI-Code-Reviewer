@@ -73,8 +73,34 @@ export const CandidateFindingSchema = z.object({
   ruleId: z.string().optional(),
   semgrepDecision: SemgrepDecisionStateSchema.optional(),
   semgrepReason: z.string().optional(),
+  tier1Decision: SemgrepDecisionStateSchema.optional(),
+  tier2Decision: SemgrepDecisionStateSchema.optional(),
 });
 export type CandidateFinding = z.infer<typeof CandidateFindingSchema>;
+
+export const ReviewMetricsSchema = z.object({
+  triageProvider: z.string(),
+  triageModel: z.string(),
+  escalated: z.boolean(),
+  escalationReason: z.string().nullable(),
+  escalationProvider: z.string().nullable(),
+  escalationModel: z.string().nullable(),
+  totalCalls: z.number().int().nonnegative(),
+  tokensIn: z.number().int().nonnegative(),
+  tokensOut: z.number().int().nonnegative(),
+  latencyMs: z.number().nonnegative(),
+  alertFinalStates: z.array(
+    z.object({
+      alertId: z.string(),
+      ruleId: z.string(),
+      tier1Decision: SemgrepDecisionStateSchema.optional(),
+      tier2Decision: SemgrepDecisionStateSchema.optional(),
+      finalDecision: SemgrepDecisionStateSchema,
+      reason: z.string(),
+    }),
+  ),
+});
+export type ReviewMetrics = z.infer<typeof ReviewMetricsSchema>;
 
 export const FindingSchema = CandidateFindingSchema.extend({
   id: z.string(),

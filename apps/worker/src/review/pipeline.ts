@@ -196,6 +196,8 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
           .filter((c) => c.filePath === file.path && c.lineStart != null)
           .map((c) => c.lineStart!);
 
+        const powerfulLlm = deps.llm.length > 1 ? deps.llm.slice(1) : deps.llm;
+
         const res = await reviewFile(
           deps.llm,
           file,
@@ -207,6 +209,7 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
             parsed: parsedFiles.get(file.path),
             findingLines,
             semgrepAlerts,
+            powerfulLlm,
           },
         );
 
