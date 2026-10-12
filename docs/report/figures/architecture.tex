@@ -1,0 +1,30 @@
+% System context. Every client reaches data through the Core API.
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[external] (claude) at (1.65,5.15) {Claude Code};
+  \node[sys] (mcp) at (1.65,3.45) {MCP server};
+  \node[sys] (dash) at (1.65,1.75) {Dashboard\\Next.js};
+  \node[external] (gh) at (1.65,0.05) {GitHub};
+
+  \node[sys, text width=2.9cm, minimum width=3.2cm, minimum height=1.25cm] (api) at (6.15,2.6)
+    {Core API\\NestJS};
+
+  \node[store] (pg) at (10.35,5.15) {Postgres\\+ pgvector};
+  \node[store] (redis) at (13.55,5.15) {Redis\\BullMQ};
+  \node[sys] (worker) at (10.35,2.55) {Worker};
+
+  \node[external, text width=2.15cm, minimum width=2.3cm] (ts) at (8.55,0.35) {Tree-sitter};
+  \node[external, text width=2.15cm, minimum width=2.3cm] (sg) at (11.15,0.35) {Semgrep};
+  \node[external, text width=2.15cm, minimum width=2.3cm] (llm) at (13.75,0.35) {LLM providers};
+
+  \draw[flow] (claude) -- (mcp);
+  \draw[flow] (mcp.east) -- node[flabel, above] {REST} (api.north west);
+  \draw[flow] (dash.east) -- node[flabel, above] {REST} (api.west);
+  \draw[flow] (gh.east) -- node[flabel, below] {webhooks} (api.south west);
+  \draw[flow] (api.north east) -- (pg.west);
+  \draw[flow] (api.east) -- node[flabel, above, sloped] {enqueue} (redis.west);
+  \draw[flow] (redis.south) -- node[flabel, right, sloped] {jobs} (worker.north east);
+  \draw[flow] (worker.north) -- (pg.south);
+  \draw[flow] (worker.south) -- (sg.north);
+  \draw[flow] (worker.south west) -- (ts.north);
+  \draw[flow] (worker.south east) -- (llm.north);
+\end{tikzpicture}

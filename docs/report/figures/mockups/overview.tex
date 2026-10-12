@@ -1,0 +1,43 @@
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \wfchrome{Overview}{7.85}
+
+  \wfpanel{3.40}{5.85}{3.75}{1.85}
+  \node[anchor=north west, font=\sffamily\tiny, text=black!55] at (3.55,7.52) {Reviews};
+  \node[anchor=north west, font=\sffamily\bfseries\large] at (3.55,7.05) {128};
+  \node[anchor=north west, font=\sffamily\tiny, text=black!50] at (3.55,6.15)
+    {Connected repositories};
+
+  \wfpanel{7.35}{5.85}{3.75}{1.85}
+  \node[anchor=north west, font=\sffamily\tiny, text=black!55] at (7.50,7.52) {Findings};
+  \node[anchor=north west, font=\sffamily\bfseries\large] at (7.50,7.05) {46};
+  \node[anchor=north west, font=\sffamily\tiny, text=black!50] at (7.50,6.15)
+    {Across all reviews};
+
+  \wfpanel{11.30}{5.85}{3.95}{1.85}
+  \node[anchor=north west, font=\sffamily\tiny, text=black!55] at (11.45,7.52) {Active repositories};
+  \node[anchor=north west, font=\sffamily\bfseries\large] at (11.45,7.05) {3};
+  \node[anchor=north west, font=\sffamily\tiny, text=black!50] at (11.45,6.15)
+    {Reviews turned on};
+
+  \wfpanel{3.40}{0.35}{11.85}{5.15}
+  \node[anchor=north west, font=\sffamily\bfseries\scriptsize] at (3.55,5.25) {Recent reviews};
+  \draw[black!15] (3.40,4.85) -- (15.25,4.85);
+  \node[anchor=west, font=\sffamily\tiny, text=black!45] at (3.55,4.62) {Pull request};
+  \node[anchor=west, font=\sffamily\tiny, text=black!45] at (9.3,4.62) {Status};
+  \node[anchor=east, font=\sffamily\tiny, text=black!45] at (15.05,4.62) {When};
+
+  \draw[black!10] (3.55,4.35) -- (15.05,4.35);
+  \node[anchor=west, font=\sffamily\tiny] at (3.55,4.05) {\#12  Add token check};
+  \node[anchor=west, font=\sffamily\tiny] at (9.3,4.05) {completed};
+  \node[anchor=east, font=\sffamily\tiny, text=black!55] at (15.05,4.05) {2m ago};
+
+  \draw[black!10] (3.55,3.75) -- (15.05,3.75);
+  \node[anchor=west, font=\sffamily\tiny] at (3.55,3.45) {\#11  Fix query timeout};
+  \node[anchor=west, font=\sffamily\tiny] at (9.3,3.45) {completed};
+  \node[anchor=east, font=\sffamily\tiny, text=black!55] at (15.05,3.45) {1h ago};
+
+  \draw[black!10] (3.55,3.15) -- (15.05,3.15);
+  \node[anchor=west, font=\sffamily\tiny] at (3.55,2.85) {Local diff};
+  \node[anchor=west, font=\sffamily\tiny] at (9.3,2.85) {running};
+  \node[anchor=east, font=\sffamily\tiny, text=black!55] at (15.05,2.85) {just now};
+\end{tikzpicture}

@@ -1,0 +1,20 @@
+% Indexing: full clone or an incremental push, then chunk, embed, upsert.
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[stage, text width=4.4cm] (t) at (3.1,6.6) {Trigger: Index button, or a push\\on the default branch};
+  \node[stage, text width=4.4cm] (r) at (3.1,5.15) {Read files. Full shallow clone,\\or only the changed paths};
+  \node[stage, text width=4.4cm] (c) at (3.1,3.7) {Chunk with Tree-sitter.\\Else overlapping line windows};
+  \node[stage, text width=4.4cm] (h) at (3.1,2.25) {Skip chunks whose\\content hash is unchanged};
+  \node[stage, text width=4.4cm] (e) at (3.1,0.8) {Embed, upsert, delete the clone};
+
+  \node[note] (n1) at (10.6,5.9) {A push job carries the changed paths and the removed paths. Only those files are re-chunked.};
+  \node[note] (n2) at (10.6,3.15) {Ignored paths, lockfiles, generated files, and binaries are skipped. The clone is deleted when the job finishes.};
+  \node[note] (n3) at (10.6,0.8) {If the embedding provider or model changed, the old chunks are dropped and the repo is rebuilt.};
+
+  \draw[flow] (t) -- (r);
+  \draw[flow] (r) -- (c);
+  \draw[flow] (c) -- (h);
+  \draw[flow] (h) -- (e);
+  \draw[rel] (r.east) -- (n1.west);
+  \draw[rel] (c.east) -- (n2.west);
+  \draw[rel] (e.east) -- (n3.west);
+\end{tikzpicture}

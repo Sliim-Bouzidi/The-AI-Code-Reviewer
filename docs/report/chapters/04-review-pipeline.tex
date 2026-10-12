@@ -1,0 +1,48 @@
+\chapter{Review pipeline}
+\label{chap:pipeline}
+
+A review starts from a GitHub \code{pull\_request} action (\code{opened}, \code{synchronize}, \code{reopened}), from a manual re-run, or from a raw diff. The webhook path is the one drawn in Figure~\ref{fig:review-flow}. The worker path is the same after the diff is in hand.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/review-flow.tex}}
+  \caption{From a GitHub delivery to a posted review. Parse, Semgrep, retrieval, and the model call run in the worker.}
+  \label{fig:review-flow}
+\end{figure}
+
+\section{Accept the event}
+
+The endpoint is \code{POST /webhooks/github}. It checks \code{X-Hub-Signature-256} against the App webhook secret. It inserts \code{X-GitHub-Delivery} into \code{webhook\_deliveries}. A conflict means GitHub retried a delivery the API already accepted, and the handler returns without enqueueing again. The handler then returns as soon as the job is on the queue. The target is a response in under three seconds.
+
+The repository must be enabled. A draft pull request is ignored. A push to the default branch of an indexed repository is not a review: it enqueues an incremental index, described in Chapter~\ref{chap:index}.
+
+On the pull request the worker adds an eyes reaction and opens an ``AI Code Review'' check run when the App has permission to do so. Both are best effort. The check run id is stored on the review row.
+
+\section{Understand the change}
+
+The worker takes an installation token and downloads the diff and the changed file contents. It skips lockfiles, generated files, binaries, and paths that match the repository's ignored globs.
+
+Tree-sitter then finds the functions and classes that changed and the calls they make. Grammars are loaded for TypeScript, JavaScript, Python, Go, Java, Ruby, and Rust. Any other language is split into overlapping line windows. Definitions of the called symbols are loaded from \code{code\_chunks} when the repository has been indexed with the current embedding model.
+
+Semgrep runs on the changed files and emits findings with the same shape as the model. A missing Semgrep binary skips the stage. It does not fail the review.
+
+\section{Ask the model, then rank}
+
+For each changed file, or a group of hunks, the worker sends one prompt: the hunks, the top retrieved chunks, the called definitions, and the repository's custom rules. The prompt demands JSON. Each object has \code{file}, \code{line\_start}, \code{line\_end}, \code{severity}, \code{category}, \code{message}, \code{suggestion}, and \code{confidence}. Zod checks the array. A bad answer is retried once with the parser error included.
+
+Ranking then does four things:
+
+\begin{enumerate}
+  \item Drop a finding whose lines are not in the diff.
+  \item Merge duplicates that came from both the model and Semgrep.
+  \item Drop low-confidence notes and pure nitpicks according to strictness (\code{low}, \code{medium}, or \code{high}).
+  \item Sort by severity and keep at most \code{max\_comments} findings. The default cap is 15, and the settings page allows 1 to 50.
+\end{enumerate}
+
+The review row is updated with the summary, the provider, the model, token counts, and the duration. Findings are inserted. The worker posts a single GitHub review: a summary body plus one inline comment per surviving finding, then completes the check run.
+
+\section{The timeline}
+
+Each stage writes a \code{review\_events} row: \code{fetch}, \code{static\_analysis}, \code{context}, \code{llm}, \code{validate}, or \code{post}, with status running, done, skipped, or failed. That is the timeline on the review page. The worker also publishes a Redis event so the open page updates without a reload (Chapter~\ref{chap:dashboard}).
+
+A failed job retries. When retries are exhausted the review status becomes \code{failed}, the error is stored, and the repository owner is notified. A successful review notifies the same way. Notification text is a title and a short body, not the diff.

@@ -1,0 +1,20 @@
+% Review pipeline, left to right, then the second row.
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[stage] (s1) at (1.85,3.15) {1. Verify signature\\and dedupe};
+  \node[stage] (s2) at (5.35,3.15) {2. Enqueue the\\review job};
+  \node[stage] (s3) at (8.85,3.15) {3. Fetch the\\pull request diff};
+  \node[stage] (s4) at (12.35,3.15) {4. Parse symbols\\with Tree-sitter};
+
+  \node[stage] (s5) at (1.85,0.55) {5. Run Semgrep\\on changed files};
+  \node[stage] (s6) at (5.35,0.55) {6. Retrieve similar\\code and definitions};
+  \node[stage] (s7) at (8.85,0.55) {7. LLM review,\\JSON schema};
+  \node[stage] (s8) at (12.35,0.55) {8. Validate, store,\\and post};
+
+  \draw[flow] (s1) -- (s2);
+  \draw[flow] (s2) -- (s3);
+  \draw[flow] (s3) -- (s4);
+  \draw[flow] (s4.south) -- ++(0,-0.7) coordinate (bend) -- (s5.north |- bend) -- (s5.north);
+  \draw[flow] (s5) -- (s6);
+  \draw[flow] (s6) -- (s7);
+  \draw[flow] (s7) -- (s8);
+\end{tikzpicture}

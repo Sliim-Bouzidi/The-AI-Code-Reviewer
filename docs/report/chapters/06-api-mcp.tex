@@ -1,0 +1,80 @@
+\chapter{API and MCP}
+\label{chap:api}
+
+The dashboard sends the Clerk session. The MCP server sends \code{Authorization: Bearer} with a key created on the API keys page. The webhook uses the GitHub signature and no session. Keys are stored as a hash; the \code{crk\_} prefix is the only part shown again in the UI.
+
+\section{Routes}
+
+Paths below are the contract the dashboard and the MCP server share. \code{:id} is a repository or a review, depending on the prefix.
+
+\begin{longtable}{@{}lp{7.4cm}@{}}
+  \caption{Core API routes.}
+  \label{tab:routes}\\
+  \toprule
+  Route & Role \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Route & Role \\
+  \midrule
+  \endhead
+  \code{GET /api/repos} & Connected repositories. \\
+  \code{POST /api/repos/:id/enable} & Turn reviews on or off. \\
+  \code{POST /api/repos/:id/index} & Enqueue a full index. \\
+  \code{GET} and \code{PUT /api/repos/:id/settings} & Strictness, ignored paths, custom rules, comment cap. \\
+  \code{GET /api/repos/:id/reviews} & Paginated review history. \\
+  \code{GET /api/reviews/:id} & One review and its findings. \\
+  \code{GET /api/reviews/:id/status} & \code{queued}, \code{running}, \code{completed}, or \code{failed}. \\
+  \code{GET /api/reviews/:id/events} & Pipeline timeline. \\
+  \code{POST /api/reviews/:id/rerun} & Review the pull request again on its latest known commit. One re-run at a time per pull request. \\
+  \code{POST /api/reviews/diff} & Start a review of a raw diff. Returns a review id. \\
+  \code{GET /api/stats} & Totals for the overview cards. \\
+  \code{POST /api/repos/:id/search} & Semantic search over chunks. \\
+  \code{GET /api/repos/:id/rules} & Effective review rules. \\
+  \code{GET /api/repos/:id/prs/:number/findings} & Latest findings for a pull request. \\
+  \code{GET /api/findings/:id} & One finding, used by the MCP explain tool. \\
+  \code{GET /api/github/install-url} & Where the Connect GitHub button sends the browser. \\
+  \code{GET /api/github/callback} & Saves the installation after GitHub redirects back. \\
+  \code{POST /webhooks/github} & Signature-checked webhook. No session. \\
+  \code{GET}, \code{POST /api/keys}, \code{DELETE /api/keys/:id} & Create, list, and revoke MCP keys. The raw key is in the create response only. \\
+  \code{GET /api/notifications/stream} & Server-sent events for the signed-in user. \\
+  \code{GET /api/reviews/:id/stream} & Server-sent events for one review. \\
+  \bottomrule
+\end{longtable}
+
+Creating the GitHub App is a separate setup flow: the dashboard posts a manifest, GitHub redirects back, and the API stores the App credentials in \code{github\_app}. Only the admin who created the App may replace it.
+
+\section{MCP tools}
+
+The server name is \code{codereview}. Tool results are compact JSON: file, line, severity, message, suggestion. They do not include whole files. \code{review\_diff} posts the diff, then polls the review status until it finishes or about two minutes pass.
+
+\begin{table}[H]
+  \centering
+  \caption{Tools the agent can call.}
+  \label{tab:tools}
+  \begin{tabular}{@{}lp{9.2cm}@{}}
+    \toprule
+    Tool & What it does \\
+    \midrule
+    \code{review\_diff} & Review a unified diff. Optional \code{repo} (\code{owner/name}) adds index context and that repo's rules. \\
+    \code{get\_pr\_review} & Findings already produced for a pull request. \\
+    \code{search\_codebase} & Semantic search. Needs an index. \\
+    \code{get\_review\_rules} & Strictness, custom rules, ignored paths. \\
+    \code{explain\_finding} & One finding in full, by id. \\
+    \code{list\_repos} & Connected repos, with enabled and index status. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Slash commands}
+
+MCP prompts show up in Claude Code as slash commands. With the server registered as \code{codereview} they are:
+
+\begin{itemize}
+  \item \code{/mcp\_\_codereview\_\_review} runs \code{git diff}, calls \code{review\_diff}, and summarizes by severity. It does not edit files.
+  \item \code{/mcp\_\_codereview\_\_review\_pr} takes a pull-request number and lists \code{get\_pr\_review}.
+  \item \code{/mcp\_\_codereview\_\_fix\_findings} loads those findings and fixes them one at a time in the working tree, then shows the diff. It does not commit.
+  \item \code{/mcp\_\_codereview\_\_search} takes a query and explains \code{search\_codebase}.
+\end{itemize}
+
+Stdio is the local demo: the API key is the environment variable \code{CODEREVIEW\_API\_KEY}, and logs go to stderr so they are not mixed into the protocol stream. Streamable HTTP is the remote form, with the same bearer key.

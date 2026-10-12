@@ -1,0 +1,64 @@
+% Shared styles for architecture diagrams and dashboard wireframes.
+\tikzset{
+  sys/.style={
+    draw=black!55, rounded corners=2pt, align=center,
+    font=\sffamily\small, inner sep=4pt, minimum height=9mm,
+    fill=blue!7, line width=0.45pt, text width=2.5cm
+  },
+  store/.style={sys, fill=orange!14},
+  external/.style={sys, fill=black!6, text width=2.35cm},
+  flow/.style={-{Stealth[length=2mm]}, draw=black!65, line width=0.55pt},
+  rel/.style={-{Stealth[length=1.7mm]}, draw=black!50, line width=0.45pt},
+  flabel/.style={font=\sffamily\scriptsize, fill=white, inner sep=1.5pt, text=black!70},
+  entity/.style={
+    draw=black!55, rounded corners=1pt, align=center,
+    font=\sffamily\scriptsize, inner sep=3pt,
+    minimum width=2.55cm, minimum height=8mm, fill=blue!6
+  },
+  entityplain/.style={entity, fill=black!5, dashed},
+  stage/.style={
+    draw=black!55, rounded corners=2pt, align=center,
+    font=\sffamily\scriptsize, inner sep=3pt, text width=2.85cm,
+    minimum height=9mm, fill=blue!6
+  },
+  note/.style={
+    draw=black!30, rounded corners=2pt, align=left,
+    font=\sffamily\scriptsize, inner sep=5pt, fill=black!4, text width=5.3cm
+  }
+}
+
+% Dashboard chrome. #1 = page title, #2 = y of the active sidebar row.
+\newcommand{\wfchrome}[2]{%
+  \fill[black!4] (0,0) rectangle (15.6,9.0);%
+  \draw[black!45, line width=0.6pt] (0,0) rectangle (15.6,9.0);%
+  \fill[black!8] (0,0) rectangle (3.15,9.0);%
+  \draw[black!20] (3.15,0) -- (3.15,9.0);%
+  \node[anchor=west, font=\sffamily\bfseries\scriptsize] at (0.16,8.52) {AI Code Reviewer};%
+  \fill[black!16, rounded corners=1pt] (0.12,{#2-0.24}) rectangle (3.02,{#2+0.24});%
+  \node[anchor=west, font=\sffamily\scriptsize] at (0.28,7.85) {Overview};%
+  \node[anchor=west, font=\sffamily\scriptsize] at (0.28,7.25) {Repositories};%
+  \node[anchor=west, font=\sffamily\scriptsize] at (0.28,6.65) {Quality};%
+  \node[anchor=west, font=\sffamily\scriptsize] at (0.28,6.05) {AI providers};%
+  \node[anchor=west, font=\sffamily\scriptsize] at (0.28,5.45) {API keys and MCP};%
+  \node[anchor=west, font=\sffamily\tiny, text=black!55] at (0.28,0.38) {Signed-in user};%
+  \fill[white] (3.15,8.05) rectangle (15.6,9.0);%
+  \draw[black!15] (3.15,8.05) -- (15.6,8.05);%
+  \node[anchor=west, font=\sffamily\bfseries\small] at (3.40,8.52) {#1};%
+  \node[anchor=east, font=\sffamily\tiny, text=black!45] at (15.35,8.52) {Notifications};%
+}
+
+% White panel. Arguments are x, y, width, height of the bottom-left corner.
+\newcommand{\wfpanel}[4]{%
+  \fill[white] (#1,#2) rectangle ({#1+#3},{#2+#4});%
+  \draw[black!22] (#1,#2) rectangle ({#1+#3},{#2+#4});%
+}
+
+\newcommand{\wfon}[2]{%
+  \fill[black!75, rounded corners=2pt] (#1,#2) rectangle ++(0.62,0.28);%
+  \fill[white] ({#1+0.44},{#2+0.14}) circle[radius=0.09];%
+}
+
+\newcommand{\wfoff}[2]{%
+  \fill[black!18, rounded corners=2pt] (#1,#2) rectangle ++(0.62,0.28);%
+  \fill[white] ({#1+0.16},{#2+0.14}) circle[radius=0.09];%
+}

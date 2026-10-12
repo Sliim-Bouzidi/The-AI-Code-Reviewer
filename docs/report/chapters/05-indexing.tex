@@ -1,0 +1,27 @@
+\chapter{Indexing}
+\label{chap:index}
+
+Indexing is a separate job from review. A review can run without an index; it then sees the diff, Semgrep, and the file contents, and it does not see the rest of the repository. With an index, step 6 of the pipeline can pull similar chunks and the definitions the change calls.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/indexing-flow.tex}}
+  \caption{Full and incremental indexing share the chunk, hash, and embed steps.}
+  \label{fig:index-flow}
+\end{figure}
+
+\section{What gets stored}
+
+The worker shallow-clones the default branch, walks the tree, and skips the same kinds of paths a review skips. Tree-sitter splits a supported file by symbol. A file it cannot parse becomes fixed-size windows with overlap. Each chunk stores the path, the symbol name, the language, the line range, the text, a content hash, the commit, and an embedding.
+
+Unchanged hashes are not sent to the embedding API. New and edited chunks are embedded and upserted. Removed files drop their chunks. The clone directory is deleted before the job returns. Index status on the repository moves through \code{none}, \code{indexing}, \code{ready}, and \code{failed}, and a progress string is shown in the dashboard while the job runs.
+
+\section{Incremental updates}
+
+A \code{push} webhook on the default branch of a repository that already has an index enqueues \code{index-repo} with the list of changed paths and the list of removed paths. Only those files are re-chunked. The first index, and any index after an embedding-model change, walks the whole tree.
+
+Search embeds the query with the caller's embedding provider and runs a cosine search over that repository's chunks. If the stored \code{embedding\_model} does not match the caller's provider and model, search refuses and the dashboard offers a re-index. Mixing vectors from two models in one index would rank nonsense.
+
+\section{When indexing is unavailable}
+
+The Index button stays disabled until the user has an embedding provider configured: Gemini, or OpenAI. A review model such as Claude does not satisfy that requirement. Reviews still run. They have less context.
