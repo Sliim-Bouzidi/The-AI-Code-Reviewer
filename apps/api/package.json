@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json && concurrently -k -n tsc,api \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"node --watch dist/main.js\"",
     "start": "node dist/main.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src"
   },
   "dependencies": {
     "@clerk/backend": "^3.22.0",

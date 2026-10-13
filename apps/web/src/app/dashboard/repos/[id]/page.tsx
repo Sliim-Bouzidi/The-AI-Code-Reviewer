@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 import PageContainer from '@/components/layout/page-container';
+import { ArchitectureTab } from '@/components/architecture-tab';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
 import { ReviewsTable } from '@/components/reviews-table';
 import { IndexStatusBadge, SEVERITY_ORDER } from '@/components/status';
@@ -266,10 +267,14 @@ export default function RepoPage() {
         <Tabs defaultValue='reviews'>
           <TabsList>
             <TabsTrigger value='reviews'>Reviews</TabsTrigger>
+            <TabsTrigger value='architecture'>Architecture</TabsTrigger>
             <TabsTrigger value='settings'>Settings</TabsTrigger>
           </TabsList>
           <TabsContent value='reviews' className='pt-2'>
             <ReviewsTab repoId={repo.id} />
+          </TabsContent>
+          <TabsContent value='architecture' className='pt-2'>
+            <ArchitectureTab repoId={repo.id} fullName={repo.fullName} defaultBranch={repo.defaultBranch} />
           </TabsContent>
           <TabsContent value='settings' className='pt-2'>
             <SettingsTab repoId={repo.id} />

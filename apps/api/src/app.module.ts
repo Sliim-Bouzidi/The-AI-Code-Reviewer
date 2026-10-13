@@ -1,6 +1,8 @@
 import { Controller, Get, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUES, redisConnection } from '@codereview/shared';
+import { AnalysisController } from './analysis/analysis.controller.js';
+import { AnalysisService } from './analysis/analysis.service.js';
 import { AuthGuard } from './auth/auth.guard.js';
 import { ClerkSetupController } from './auth/clerk-setup.controller.js';
 import { DbModule } from './common/db.module.js';
@@ -28,12 +30,12 @@ class HealthController {
   imports: [
     DbModule,
     BullModule.forRootAsync({ useFactory: () => ({ connection: redisConnection() }) }),
-    BullModule.registerQueue({ name: QUEUES.REVIEW }, { name: QUEUES.INDEX }, { name: QUEUES.EVAL }),
+    BullModule.registerQueue({ name: QUEUES.REVIEW }, { name: QUEUES.INDEX }, { name: QUEUES.EVAL }, { name: QUEUES.ANALYZE }),
   ],
   controllers: [
     HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController,
-    NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController,
+    NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController, AnalysisController,
   ],
-  providers: [AuthGuard, GithubService, ReposService, RealtimeService],
+  providers: [AuthGuard, GithubService, ReposService, RealtimeService, AnalysisService],
 })
 export class AppModule {}

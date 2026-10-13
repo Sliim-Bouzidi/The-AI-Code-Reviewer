@@ -3,10 +3,10 @@ import type { RawBodyRequest } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type { Request } from 'express';
-import { eq, pullRequests, repositories, reviews, webhookDeliveries } from '@codereview/db';
+import { and, codeAnalyses, eq, pullRequests, repositories, reviews, webhookDeliveries } from '@codereview/db';
 import type { Db } from '@codereview/db';
-import { DEFAULT_JOB_OPTIONS, QUEUES } from '@codereview/shared';
-import type { IndexJobData, ReviewJobData } from '@codereview/shared';
+import { ANALYZE_JOB_OPTIONS, DEFAULT_JOB_OPTIONS, QUEUES } from '@codereview/shared';
+import type { AnalyzeJobData, IndexJobData, ReviewJobData } from '@codereview/shared';
 import { DB } from '../common/db.module.js';
 import { GithubService } from './github.service.js';
 
@@ -19,6 +19,7 @@ export class WebhookController {
     @Inject(DB) private readonly db: Db,
     @InjectQueue(QUEUES.REVIEW) private readonly reviewQueue: Queue<ReviewJobData>,
     @InjectQueue(QUEUES.INDEX) private readonly indexQueue: Queue<IndexJobData>,
+    @InjectQueue(QUEUES.ANALYZE) private readonly analyzeQueue: Queue<AnalyzeJobData>,
     private readonly github: GithubService,
   ) {}
 
@@ -67,6 +68,7 @@ export class WebhookController {
   /** A push to the default branch of an already indexed repo: re-index only the files it touched. */
   private async onPush(payload: any) {
     const [repo] = await this.db.select().from(repositories).where(eq(repositories.githubRepoId, payload.repository.id));
+    if (repo) await this.refreshAnalysis(repo.id, payload); // independent of the embedding index below
     if (!repo || !repo.enabled || repo.indexStatus !== 'ready') return { ok: true, ignored: 'repo not indexed' };
     if (payload.ref !== `refs/heads/${repo.defaultBranch}` || payload.deleted) return { ok: true, ignored: 'not the default branch' };
 
@@ -89,6 +91,23 @@ export class WebhookController {
       { ...DEFAULT_JOB_OPTIONS, jobId: `index-${repo.id}-${payload.after}` },
     );
     return { ok: true, queued: 'incremental index', files: changed.size + removed.size };
+  }
+
+  /** A push to a branch whose structure was analysed: analyse it again so its diagrams follow the code. */
+  private async refreshAnalysis(repoId: string, payload: any): Promise<void> {
+    const ref = String(payload.ref ?? '');
+    if (!ref.startsWith('refs/heads/') || payload.deleted) return;
+    const branch = ref.slice('refs/heads/'.length);
+    try {
+      const [analysis] = await this.db
+        .select({ id: codeAnalyses.id })
+        .from(codeAnalyses)
+        .where(and(eq(codeAnalyses.repoId, repoId), eq(codeAnalyses.branch, branch)));
+      if (!analysis) return; // only branches somebody asked to analyse are kept up to date
+      await this.analyzeQueue.add('analyze', { repoId, branch }, { ...ANALYZE_JOB_OPTIONS, jobId: `analyze-${repoId}-${payload.after}` });
+    } catch {
+      // keeping diagrams fresh is best effort: it must never fail the webhook (reviews and indexing share it)
+    }
   }
 
   private async onPullRequest(payload: any) {

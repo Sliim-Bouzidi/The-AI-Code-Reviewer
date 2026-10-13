@@ -58,6 +58,10 @@ Stop everything with `docker compose down` (add `-v` to also delete the database
 - **Reviews fail with an LLM error.** Check `GEMINI_API_KEY`; free keys are rate limited, so the pipeline spaces its calls out (`LLM_MIN_INTERVAL_MS`).
 - **Port already in use.** Stop whatever uses 3000, 4000, 5432 or 6379 (for example a local `pnpm dev`).
 
+## Architecture diagrams
+
+Open a repository in the dashboard and use the **Architecture** tab: pick a branch, click *Analyse this branch*, then choose **Packages** (directories and the imports between them), **Dependencies** (imports between files) or **Classes** (UML classes, interfaces, inheritance). The analysis is static (Tree-sitter, no AI, no API key); a dotted line means a link matched by name rather than proven. Elements link to the code on GitHub and diagrams export as Mermaid, SVG or JSON. A push to an analysed branch refreshes its analysis.
+
 ## Use it from Claude Code (MCP)
 
 Create an API key on the dashboard's **API Keys** page, then:

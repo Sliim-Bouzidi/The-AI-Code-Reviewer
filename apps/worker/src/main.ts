@@ -1,8 +1,9 @@
 import { Worker } from 'bullmq';
-import { createDb, eq, getLlmEnv, LLM_SETTING_ENV, repositories, reviews } from '@codereview/db';
+import { and, codeAnalyses, createDb, eq, getLlmEnv, LLM_SETTING_ENV, repositories, reviews } from '@codereview/db';
 import { createEmbedderFromEnv, createProvidersFromEnv } from '@codereview/llm';
 import { loadEnv, QUEUES, redisConnection } from '@codereview/shared';
-import type { EvalJobData, IndexJobData, ReviewJobData } from '@codereview/shared';
+import type { AnalyzeJobData, EvalJobData, IndexJobData, ReviewJobData } from '@codereview/shared';
+import { runAnalysis } from './analyze/analyzer.js';
 import { log } from './deps.js';
 import type { Deps } from './deps.js';
 import { failEvalRun, runEvals } from './eval/run-evals.js';
@@ -54,6 +55,8 @@ const workers = [
     async (job) => runIndex(await depsFor(await repoOwnerId(db, job.data.repoId)), job.data),
     { connection, concurrency: 1 },
   ),
+  // structure analysis (static, no AI): clone one branch and rebuild its graph of files, symbols and relations
+  new Worker<AnalyzeJobData>(QUEUES.ANALYZE, async (job) => runAnalysis(deps, job.data), { connection, concurrency: 1, lockDuration: 5 * 60_000 }),
   // quality evals: a run reviews every case in evals/ one after another (long job, generous lock)
   new Worker<EvalJobData>(
     QUEUES.EVAL,
@@ -72,6 +75,19 @@ for (const w of workers) {
     void (async () => {
       if (w.name === QUEUES.EVAL) {
         if (final) await failEvalRun(deps, (job.data as EvalJobData).runId, err.message);
+      } else if (w.name === QUEUES.ANALYZE) {
+        // a job interrupted by a restart never reaches the analyser's own error handling
+        if (final) {
+          const { repoId, branch } = job.data as AnalyzeJobData;
+          const [repo] = await deps.db.select().from(repositories).where(eq(repositories.id, repoId));
+          const target = branch ?? repo?.defaultBranch;
+          if (target) {
+            await deps.db
+              .update(codeAnalyses)
+              .set({ status: 'failed', progress: stalled ? 'Interrupted (the worker restarted).' : err.message.slice(0, 200), updatedAt: new Date() })
+              .where(and(eq(codeAnalyses.repoId, repoId), eq(codeAnalyses.branch, target)));
+          }
+        }
       } else if (w.name === QUEUES.INDEX) {
         const { repoId } = job.data as IndexJobData;
         // A job interrupted by a worker restart never reaches the indexer's own error handling,

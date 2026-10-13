@@ -1,7 +1,7 @@
 'use client';
 
 import type {
-  EvalRun, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
+  Analysis, BranchesResponse, Diagram, DiagramQuery, EvalRun, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
   UpdateLlmSettings, UpdateRepoSettings,
 } from '@codereview/shared';
 import * as React from 'react';
@@ -131,6 +131,17 @@ export function useApi() {
         request<{ postUrl: string; manifest: Record<string, unknown> }>('POST', '/api/setup/github-app'),
       reviewEvents: (id: string) =>
         request<{ status: string; items: ReviewEvent[] }>('GET', `/api/reviews/${id}/events`),
+      repoBranches: (id: string) => request<BranchesResponse>('GET', `/api/repos/${id}/branches`),
+      analyses: (id: string) => request<Analysis[]>('GET', `/api/repos/${id}/analyses`),
+      analyzeRepo: (id: string, branch?: string) => request<Analysis>('POST', `/api/repos/${id}/analyze`, branch ? { branch } : {}),
+      diagram: (id: string, q: Partial<DiagramQuery> & Pick<DiagramQuery, 'kind'>) => {
+        const params = new URLSearchParams({ kind: q.kind });
+        if (q.branch) params.set('branch', q.branch);
+        if (q.scope) params.set('scope', q.scope);
+        if (q.depth) params.set('depth', String(q.depth));
+        if (q.external !== undefined) params.set('external', String(q.external));
+        return request<Diagram>('GET', `/api/repos/${id}/diagram?${params}`);
+      },
       keys: () => request<ApiKey[]>('GET', '/api/keys'),
       createKey: (name: string) => request<ApiKey & { key: string }>('POST', '/api/keys', { name }),
       revokeKey: (id: string) => request<void>('DELETE', `/api/keys/${id}`),

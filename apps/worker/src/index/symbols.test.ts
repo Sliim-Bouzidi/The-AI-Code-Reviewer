@@ -54,3 +54,40 @@ describe('Tree-sitter symbols', () => {
     expect(chunks[0]!.symbol).toBeNull();
   });
 });
+
+describe('Tree-sitter structure (containers, heritage, imports)', () => {
+  it('records the enclosing class, extends and implements of TypeScript symbols', async () => {
+    const code = `import a, { b as c } from './x.js';\nimport * as ns from 'pkg';\nexport { e } from './y';\nexport class A extends B implements I, J { m() {} }\ninterface K extends L, M {}\n`;
+    const parsed = (await parseFile('src/a.ts', code))!;
+    const a = parsed.symbols.find((s) => s.name === 'A')!;
+    expect(a.extends).toEqual(['B']);
+    expect(a.implements).toEqual(['I', 'J']);
+    expect(parsed.symbols.find((s) => s.name === 'm')!.container).toBe('A');
+    expect(parsed.symbols.find((s) => s.name === 'K')!.extends).toEqual(['L', 'M']);
+    expect(parsed.importRefs.map((r) => r.source)).toEqual(['./x.js', 'pkg', './y']);
+    expect(parsed.importRefs[0]!.bindings).toEqual([
+      { local: 'a', imported: 'default' },
+      { local: 'c', imported: 'b' },
+    ]);
+  });
+
+  it('parses Java package, imports and base types', async () => {
+    const code = `package com.foo;\nimport com.bar.Baz;\nimport com.q.*;\npublic class A extends B implements I, J { void m() {} }\n`;
+    const parsed = (await parseFile('A.java', code))!;
+    expect(parsed.packageName).toBe('com.foo');
+    expect(parsed.importRefs.map((r) => r.source)).toEqual(['com.bar.Baz', 'com.q.*']);
+    const a = parsed.symbols.find((s) => s.name === 'A')!;
+    expect([a.extends, a.implements]).toEqual([['B'], ['I', 'J']]);
+  });
+
+  it('parses Python imports and base classes', async () => {
+    const code = `import a.b as c\nfrom .x import y as z, w\nclass A(B, C):\n  def m(self): pass\n`;
+    const parsed = (await parseFile('p.py', code))!;
+    expect(parsed.importRefs.map((r) => r.source)).toEqual(['a.b', '.x']);
+    expect(parsed.importRefs[1]!.bindings).toEqual([
+      { local: 'z', imported: 'y' },
+      { local: 'w', imported: 'w' },
+    ]);
+    expect(parsed.symbols.find((s) => s.name === 'A')!.extends).toEqual(['B', 'C']);
+  });
+});

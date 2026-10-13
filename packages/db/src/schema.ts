@@ -3,7 +3,8 @@ import {
   bigint, boolean, index, integer, jsonb, pgTable, real, text, timestamp, unique, uuid, vector,
 } from 'drizzle-orm/pg-core';
 import type {
-  Category, CustomRule, FindingSource, IndexStatus, ReviewStatus, ReviewTrigger, Severity, Strictness,
+  AnalysisStatus, Category, Confidence, CustomRule, FindingSource, IndexStatus, RelationKind, ReviewStatus, ReviewTrigger, Severity,
+  Strictness,
 } from '@codereview/shared';
 
 /** Must match the embedding model's output size. Changing it needs a new migration. */
@@ -136,6 +137,82 @@ export const codeChunks = pgTable(
     index('code_chunks_embedding_hnsw').using('hnsw', t.embedding.op('vector_cosine_ops')),
     index('code_chunks_repo_file').on(t.repoId, t.filePath),
   ],
+);
+
+/**
+ * Structure graph of one branch of a repository (files, symbols, relations), built by the `analyze-repo`
+ * job from a Tree-sitter parse. One row per (repo, branch): a new analysis replaces the previous rows.
+ */
+export const codeAnalyses = pgTable(
+  'code_analyses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    repoId: uuid('repo_id')
+      .notNull()
+      .references(() => repositories.id, { onDelete: 'cascade' }),
+    branch: text('branch').notNull(),
+    status: text('status').$type<AnalysisStatus>().notNull(),
+    commitSha: text('commit_sha'),
+    // progress text while analysing, or the reason it failed
+    progress: text('progress'),
+    filesCount: integer('files_count').notNull().default(0),
+    symbolsCount: integer('symbols_count').notNull().default(0),
+    relationsCount: integer('relations_count').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('code_analyses_repo_branch').on(t.repoId, t.branch)],
+);
+
+export const codeFiles = pgTable(
+  'code_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    analysisId: uuid('analysis_id')
+      .notNull()
+      .references(() => codeAnalyses.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    language: text('language'),
+    lines: integer('lines').notNull().default(0),
+    packageName: text('package_name'), // Java `package`, null elsewhere
+  },
+  (t) => [index('code_files_analysis_path').on(t.analysisId, t.path)],
+);
+
+export const codeSymbols = pgTable(
+  'code_symbols',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    analysisId: uuid('analysis_id')
+      .notNull()
+      .references(() => codeAnalyses.id, { onDelete: 'cascade' }),
+    filePath: text('file_path').notNull(),
+    name: text('name').notNull(),
+    kind: text('kind').notNull(), // Tree-sitter node type: class_declaration, method_definition, ...
+    container: text('container'), // enclosing class / interface, null at top level
+    startLine: integer('start_line').notNull(),
+    endLine: integer('end_line').notNull(),
+  },
+  (t) => [index('code_symbols_analysis_file').on(t.analysisId, t.filePath)],
+);
+
+/** A relation found in the code. Exactly one of to_file / to_external is set unless the target is unresolved. */
+export const codeRelations = pgTable(
+  'code_relations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    analysisId: uuid('analysis_id')
+      .notNull()
+      .references(() => codeAnalyses.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<RelationKind>().notNull(),
+    fromFile: text('from_file').notNull(),
+    fromSymbol: text('from_symbol'),
+    toFile: text('to_file'),
+    toSymbol: text('to_symbol'),
+    toExternal: text('to_external'), // package / type outside the repository, or the unresolved specifier
+    confidence: text('confidence').$type<Confidence>().notNull(),
+    line: integer('line'),
+  },
+  (t) => [index('code_relations_analysis_kind').on(t.analysisId, t.kind)],
 );
 
 export const apiKeys = pgTable('api_keys', {

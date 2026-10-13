@@ -1,23 +1,20 @@
-import { execFile } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { promisify } from 'node:util';
 import { and, codeChunks, eq, inArray, installations, notInArray, repoSettings, repositories } from '@codereview/db';
 import { embedderId } from '@codereview/llm';
 import type { IndexJobData } from '@codereview/shared';
 import type { Deps } from '../deps.js';
 import { log } from '../deps.js';
-import { getInstallationToken } from '../github.js';
+import { cloneRepository } from '../git-clone.js';
 import { isIgnoredPath } from '../review/filter.js';
 import { languageOf } from './chunker.js';
 import { notifyIndex } from '../notify.js';
 import { chunkFileBySymbol } from './symbols.js';
 
-const exec = promisify(execFile);
 const MAX_FILE_BYTES = 200_000;
 
-async function* walk(dir: string): AsyncGenerator<string> {
+export async function* walk(dir: string): AsyncGenerator<string> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.name === '.git') continue;
     const full = join(dir, entry.name);
@@ -62,15 +59,7 @@ export async function runIndex(deps: Deps, job: IndexJobData): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'codereview-index-'));
   try {
     const [settings] = await db.select().from(repoSettings).where(eq(repoSettings.repoId, job.repoId));
-    const token = await getInstallationToken(row.inst.githubInstallationId);
-    // the token is passed as a header, so it never lands in the clone's .git/config
-    const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
-    await exec(
-      'git',
-      ['-c', `http.extraHeader=Authorization: Basic ${basic}`, 'clone', '--depth', '1', `https://github.com/${row.repo.fullName}.git`, dir],
-      { timeout: 300_000 },
-    );
-    const sha = (await exec('git', ['-C', dir, 'rev-parse', 'HEAD'])).stdout.trim();
+    const sha = await cloneRepository(row.inst.githubInstallationId, row.repo.fullName, dir);
     await progress('Splitting files into functions and classes');
 
     // reuse embeddings of unchanged chunks

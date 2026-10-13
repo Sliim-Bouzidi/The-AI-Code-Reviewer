@@ -16,7 +16,7 @@ interface LangSpec {
 
 const JS: Omit<LangSpec, 'wasm'> = {
   symbols: new Set([
-    'function_declaration', 'generator_function_declaration', 'class_declaration', 'method_definition',
+    'function_declaration', 'generator_function_declaration', 'class_declaration', 'abstract_class_declaration', 'method_definition',
     'interface_declaration', 'type_alias_declaration', 'enum_declaration',
   ]),
   calls: new Set(['call_expression', 'new_expression']),
@@ -41,7 +41,9 @@ const SPECS: Record<string, LangSpec> = {
   },
   java: {
     wasm: 'java',
-    symbols: new Set(['class_declaration', 'interface_declaration', 'method_declaration', 'constructor_declaration']),
+    symbols: new Set([
+      'class_declaration', 'interface_declaration', 'enum_declaration', 'record_declaration', 'method_declaration', 'constructor_declaration',
+    ]),
     calls: new Set(['method_invocation']),
     imports: new Set(['import_declaration']),
   },
@@ -65,11 +67,35 @@ export interface Symbol {
   startLine: number; // 1-based
   endLine: number;
   calls: string[]; // names of functions/methods called inside
+  /** Name of the enclosing class / interface / module, null for top-level symbols. */
+  container: string | null;
+  /** Names written after `extends` (classes, interfaces) or in the Python base-class list. */
+  extends: string[];
+  /** Names written after `implements`. */
+  implements: string[];
+}
+
+/** One name an import brings into the file: `import { a as b }` -> { local: 'b', imported: 'a' }. */
+export interface ImportBinding {
+  local: string;
+  /** Exported name in the other module, `default` for a default import, `*` for a namespace/module import. */
+  imported: string;
+}
+
+/** A structured import / re-export, used to link files together (see analyze/resolve.ts). */
+export interface ImportRef {
+  /** Module specifier as written: './x.js', 'pkg', 'com.foo.Bar', '.x' (Python relative). */
+  source: string;
+  bindings: ImportBinding[];
+  line: number;
 }
 
 export interface ParsedFile {
   symbols: Symbol[];
   imports: string[]; // raw import statements
+  importRefs: ImportRef[];
+  /** Java `package` declaration, null for other languages or when absent. */
+  packageName: string | null;
 }
 
 let initPromise: Promise<void> | null = null;
@@ -111,6 +137,118 @@ function symbolName(node: Parser.SyntaxNode): string | null {
   return null;
 }
 
+const stripQuotes = (text: string) => text.replace(/^['"`]|['"`]$/g, '');
+
+/** `Foo<T>` -> Foo, `a.b.Foo` -> Foo: the bare type name, which is all static parsing can know. */
+function typeName(node: Parser.SyntaxNode): string | null {
+  const text = node.text.replace(/<.*$/s, '').trim();
+  const m = /([A-Za-z_$][\w$]*)$/.exec(text);
+  return m ? m[1]! : null;
+}
+
+const TYPE_NODES = new Set([
+  'identifier', 'type_identifier', 'generic_type', 'scoped_type_identifier', 'nested_type_identifier', 'member_expression', 'attribute',
+]);
+
+/** Bare names of the type-like nodes in the list (a Java `type_list` is flattened). */
+function baseNames(nodes: Parser.SyntaxNode[]): string[] {
+  const out: string[] = [];
+  for (const c of nodes) {
+    if (TYPE_NODES.has(c.type)) {
+      const n = typeName(c);
+      if (n) out.push(n);
+    } else if (c.type === 'type_list') {
+      out.push(...baseNames(c.namedChildren));
+    }
+  }
+  return out;
+}
+
+const namesIn = (node: Parser.SyntaxNode | null | undefined): string[] => (node ? baseNames(node.namedChildren) : []);
+
+/** Base types written in a class / interface declaration, per grammar. */
+function heritage(lang: string, node: Parser.SyntaxNode): { extends: string[]; implements: string[] } {
+  const res = { extends: [] as string[], implements: [] as string[] };
+  if (lang === 'java') {
+    for (const c of node.namedChildren) {
+      if (c.type === 'superclass') res.extends.push(...namesIn(c));
+      else if (c.type === 'extends_interfaces') res.extends.push(...namesIn(c));
+      else if (c.type === 'super_interfaces') res.implements.push(...namesIn(c));
+    }
+  } else if (lang === 'python') {
+    const args = node.childForFieldName('superclasses');
+    if (args) res.extends.push(...namesIn(args));
+  } else if (lang === 'typescript' || lang === 'tsx' || lang === 'javascript') {
+    for (const c of node.namedChildren) {
+      if (c.type === 'extends_type_clause') res.extends.push(...namesIn(c));
+      if (c.type !== 'class_heritage') continue;
+      for (const h of c.namedChildren) {
+        if (h.type === 'extends_clause') res.extends.push(...namesIn(h));
+        else if (h.type === 'implements_clause') res.implements.push(...namesIn(h));
+        else res.extends.push(...baseNames([h])); // JS: `extends Foo` without a clause node
+      }
+    }
+  }
+  return res;
+}
+
+/** Structured import of one import / re-export node, or null when it has no module specifier. */
+function importRef(lang: string, node: Parser.SyntaxNode): ImportRef | null {
+  const line = node.startPosition.row + 1;
+  if (lang === 'typescript' || lang === 'tsx' || lang === 'javascript') {
+    const source = node.childForFieldName('source');
+    if (!source) return null;
+    const bindings: ImportBinding[] = [];
+    for (const clause of node.namedChildren.filter((c) => c.type === 'import_clause')) {
+      for (const c of clause.namedChildren) {
+        if (c.type === 'identifier') bindings.push({ local: c.text, imported: 'default' });
+        else if (c.type === 'namespace_import') bindings.push({ local: c.namedChildren[0]?.text ?? '*', imported: '*' });
+        else if (c.type === 'named_imports') {
+          for (const sp of c.namedChildren.filter((x) => x.type === 'import_specifier')) {
+            const name = sp.childForFieldName('name')?.text;
+            const alias = sp.childForFieldName('alias')?.text;
+            if (name) bindings.push({ local: alias ?? name, imported: name });
+          }
+        }
+      }
+    }
+    return { source: stripQuotes(source.text), bindings, line };
+  }
+  if (lang === 'java') {
+    const scoped = node.namedChildren.find((c) => c.type === 'scoped_identifier' || c.type === 'identifier');
+    if (!scoped) return null;
+    const wildcard = node.namedChildren.some((c) => c.type === 'asterisk');
+    const full = wildcard ? `${scoped.text}.*` : scoped.text;
+    const last = scoped.text.split('.').pop()!;
+    return { source: full, bindings: wildcard ? [] : [{ local: last, imported: last }], line };
+  }
+  if (lang === 'python') {
+    if (node.type === 'import_statement') {
+      // `import a.b` / `import a.b as c`: the first import of the statement (one per statement is the norm)
+      const first = node.namedChildren[0];
+      if (!first) return null;
+      const aliased = first.type === 'aliased_import';
+      const dotted = aliased ? first.namedChildren[0] : first;
+      const alias = aliased ? first.namedChildren[1]?.text : undefined;
+      if (!dotted) return null;
+      return { source: dotted.text, bindings: [{ local: alias ?? dotted.text.split('.')[0]!, imported: '*' }], line };
+    }
+    const mod = node.childForFieldName('module_name') ?? node.namedChildren[0];
+    if (!mod) return null;
+    const bindings: ImportBinding[] = [];
+    for (const c of node.namedChildren.slice(1)) {
+      if (c.type === 'dotted_name') bindings.push({ local: c.text, imported: c.text });
+      else if (c.type === 'aliased_import') {
+        const name = c.namedChildren[0]?.text;
+        const alias = c.namedChildren[1]?.text;
+        if (name) bindings.push({ local: alias ?? name, imported: name });
+      }
+    }
+    return { source: mod.text, bindings, line };
+  }
+  return null;
+}
+
 /** Parses a file with Tree-sitter. Returns null when the language has no grammar or parsing fails. */
 export async function parseFile(path: string, content: string): Promise<ParsedFile | null> {
   const lang = languageOf(path);
@@ -125,6 +263,8 @@ export async function parseFile(path: string, content: string): Promise<ParsedFi
     const tree = parser.parse(content);
     const symbols: Symbol[] = [];
     const imports: string[] = [];
+    const importRefs: ImportRef[] = [];
+    let packageName: string | null = null;
 
     const collectCalls = (node: Parser.SyntaxNode): string[] => {
       const names = new Set<string>();
@@ -140,8 +280,18 @@ export async function parseFile(path: string, content: string): Promise<ParsedFi
       return [...names];
     };
 
-    const visit = (node: Parser.SyntaxNode, depth: number) => {
-      if (spec.imports.has(node.type)) imports.push(node.text.slice(0, 300));
+    const jsFamily = lang === 'typescript' || lang === 'tsx' || lang === 'javascript';
+    const visit = (node: Parser.SyntaxNode, depth: number, container: string | null) => {
+      if (spec.imports.has(node.type)) {
+        imports.push(node.text.slice(0, 300));
+        const ref = importRef(lang, node);
+        if (ref) importRefs.push(ref);
+      } else if (jsFamily && node.type === 'export_statement' && node.childForFieldName('source')) {
+        const ref = importRef(lang, node); // `export { x } from './y'` links the files too
+        if (ref) importRefs.push(ref);
+      } else if (lang === 'java' && node.type === 'package_declaration') {
+        packageName = node.namedChildren[0]?.text ?? null;
+      }
       let isSymbol = spec.symbols.has(node.type);
       let name = isSymbol ? symbolName(node) : null;
       // arrow functions / function expressions assigned to a variable
@@ -153,21 +303,27 @@ export async function parseFile(path: string, content: string): Promise<ParsedFi
           name = decl.childForFieldName('name')?.text ?? null;
         }
       }
+      const classLike = /class|impl|module|interface|trait/.test(node.type);
       if (isSymbol && name) {
+        const base = classLike ? heritage(lang, node) : { extends: [], implements: [] };
         symbols.push({
           name,
           kind: node.type,
           startLine: node.startPosition.row + 1,
           endLine: node.endPosition.row + 1,
           calls: collectCalls(node).filter((c) => c !== name),
+          container,
+          extends: base.extends,
+          implements: base.implements,
         });
       }
       // classes contain methods that are symbols of their own; functions' inner helpers are not
-      const descend = depth < 3 && (!isSymbol || /class|impl|module|interface|trait/.test(node.type));
-      if (!isSymbol || descend) for (const c of node.namedChildren) visit(c, depth + 1);
+      const descend = depth < 3 && (!isSymbol || classLike);
+      const childContainer = isSymbol && name && classLike ? name : container;
+      if (!isSymbol || descend) for (const c of node.namedChildren) visit(c, depth + 1, childContainer);
     };
-    visit(tree.rootNode, 0);
-    return { symbols, imports };
+    visit(tree.rootNode, 0, null);
+    return { symbols, imports, importRefs, packageName };
   } catch {
     return null;
   } finally {

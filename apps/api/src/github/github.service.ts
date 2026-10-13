@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { BadRequestException, ForbiddenException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ForbiddenException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { App } from '@octokit/app';
 import {
   clearGithubAppCache, eq, getGithubAppConfig, getLlmEnv, githubApp, inArray, installations, isGithubAppAdmin, repositories,
@@ -8,6 +8,7 @@ import {
 } from '@codereview/db';
 import type { Db } from '@codereview/db';
 import { llmConfigured } from '@codereview/llm';
+import { BranchNameSchema } from '@codereview/shared';
 import { DB } from '../common/db.module.js';
 
 /**
@@ -246,6 +247,28 @@ export class GithubService {
     const current = await this.db.select().from(repositories).where(eq(repositories.installationId, row!.id));
     const gone = current.filter((c) => !repos.some((r) => r.id === c.githubRepoId)).map((c) => c.id);
     if (gone.length > 0) await this.db.delete(repositories).where(inArray(repositories.id, gone));
+  }
+
+  /**
+   * Branch names of a repository, for the branch picker (first 300). Only names the analysis accepts
+   * (see BranchNameSchema) are returned, so every listed branch can be analysed.
+   */
+  async listBranches(githubInstallationId: number, fullName: string): Promise<{ names: string[]; truncated: boolean }> {
+    const [owner, repo] = fullName.split('/') as [string, string];
+    const names: string[] = [];
+    let truncated = false;
+    try {
+      const octokit = await (await this.getApp()).getInstallationOctokit(githubInstallationId);
+      for (let page = 1; page <= 3; page++) {
+        const { data } = await octokit.request('GET /repos/{owner}/{repo}/branches', { owner, repo, per_page: 100, page });
+        names.push(...data.map((b) => b.name));
+        if (data.length < 100) break;
+        if (page === 3) truncated = true;
+      }
+    } catch {
+      throw new BadGatewayException('Could not list the branches from GitHub. Check that the GitHub App still has access to this repository.');
+    }
+    return { names: names.filter((n) => BranchNameSchema.safeParse(n).success), truncated };
   }
 
   async removeInstallation(githubInstallationId: number): Promise<void> {

@@ -21,9 +21,23 @@ export interface IndexJobData {
   removed?: string[];
 }
 
+/** Payload of a job on the `analyze-repo` queue: clone a branch and rebuild its structure graph. */
+export interface AnalyzeJobData {
+  repoId: string;
+  /** Defaults to the repository's default branch. */
+  branch?: string;
+}
+
 export const DEFAULT_JOB_OPTIONS = {
   attempts: 3,
   backoff: { type: 'exponential' as const, delay: 30_000 },
   removeOnComplete: 100,
   removeOnFail: 200,
+};
+
+/** Structure analyses are cheap (no AI call) and fail for stable reasons (unknown branch): fewer, quicker retries. */
+export const ANALYZE_JOB_OPTIONS = {
+  ...DEFAULT_JOB_OPTIONS,
+  attempts: 2,
+  backoff: { type: 'exponential' as const, delay: 10_000 },
 };
