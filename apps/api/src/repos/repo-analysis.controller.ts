@@ -132,7 +132,12 @@ Format your response as JSON with this structure:
   "recommendation": "<string>"
 }`;
 
-      const llmResponse = await llm.generate(prompt, { temperature: 0.7 });
+      const result = await llm.generate({
+        system: 'You are a GitHub repository analyst. Provide objective, helpful assessments based on repository metrics.',
+        prompt,
+        json: true,
+        temperature: 0.7,
+      });
 
       // Parse LLM response
       let analysis: {
@@ -145,14 +150,14 @@ Format your response as JSON with this structure:
 
       try {
         // Extract JSON from the response (handle markdown code blocks)
-        const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/) || llmResponse.match(/\{[\s\S]*\}/);
-        const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : llmResponse;
+        const jsonMatch = result.text.match(/```json\s*([\s\S]*?)\s*```/) || result.text.match(/\{[\s\S]*\}/);
+        const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : result.text;
         analysis = JSON.parse(jsonStr);
       } catch (e) {
         // Fallback if LLM doesn't return valid JSON
         analysis = {
           score: 50,
-          summary: llmResponse.substring(0, 500),
+          summary: result.text.substring(0, 500),
           strengths: ['Analysis in progress'],
           concerns: ['Unable to parse detailed analysis'],
           recommendation: 'Manual review recommended',
