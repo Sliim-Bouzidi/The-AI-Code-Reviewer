@@ -14,6 +14,7 @@ import { RealtimeService } from './realtime/realtime.service.js';
 import { LlmSettingsController } from './settings/llm-settings.controller.js';
 import { ReposController } from './repos/repos.controller.js';
 import { ReposService } from './repos/repos.service.js';
+import { RepoAnalysisController } from './repos/repo-analysis.controller.js';
 import { ReviewsController } from './reviews/reviews.controller.js';
 
 @Controller('health')
@@ -31,7 +32,7 @@ class HealthController {
     BullModule.registerQueue({ name: QUEUES.REVIEW }, { name: QUEUES.INDEX }, { name: QUEUES.EVAL }),
   ],
   controllers: [
-    HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController,
+    HealthController, WebhookController, GithubController, ReposController, RepoAnalysisController, ReviewsController, KeysController,
     NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController,
   ],
   providers: [AuthGuard, GithubService, ReposService, RealtimeService],
