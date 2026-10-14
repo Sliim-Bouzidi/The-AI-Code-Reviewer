@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import type { Db } from '@codereview/db';
 import { getLlmEnv } from '@codereview/db';
-import { createLlmFromEnv } from '@codereview/llm';
+import { createProvidersFromEnv } from '@codereview/llm';
 import { AnalyzeRepoUrlBodySchema } from '@codereview/shared';
 import type { AnalyzeRepoUrlBody, RepoAnalysisResult } from '@codereview/shared';
 import { AuthGuard, CurrentUser } from '../auth/auth.guard.js';
@@ -91,10 +91,11 @@ export class RepoAnalysisController {
       const daysSinceLastPush = Math.floor((now - lastPushDate) / (1000 * 60 * 60 * 24));
 
       // Use LLM to generate a detailed analysis
-      const llm = createLlmFromEnv(await getLlmEnv(this.db, user.id));
-      if (!llm) {
+      const providers = createProvidersFromEnv(await getLlmEnv(this.db, user.id));
+      if (providers.length === 0) {
         throw new ServiceUnavailableException('LLM is not configured. Add an API key in the dashboard.');
       }
+      const llm = providers[0];
 
       const prompt = `Analyze this GitHub repository and provide an assessment of whether it's a good project.
 
