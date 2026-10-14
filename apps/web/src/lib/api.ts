@@ -1,8 +1,8 @@
 'use client';
 
 import type {
-  EvalRun, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestLlmResponse,
-  UpdateLlmSettings, UpdateRepoSettings,
+  AnalyzeRepoUrlBody, EvalRun, LlmSettingsResponse, PaginatedReviews, Repo, RepoAnalysisResult, RepoSettings,
+  ReviewWithFindings, Stats, TestLlmResponse, UpdateLlmSettings, UpdateRepoSettings,
 } from '@codereview/shared';
 import * as React from 'react';
 import { useGetToken } from './auth';
@@ -134,6 +134,8 @@ export function useApi() {
       keys: () => request<ApiKey[]>('GET', '/api/keys'),
       createKey: (name: string) => request<ApiKey & { key: string }>('POST', '/api/keys', { name }),
       revokeKey: (id: string) => request<void>('DELETE', `/api/keys/${id}`),
+      analyzeRepo: (body: AnalyzeRepoUrlBody) =>
+        request<RepoAnalysisResult>('POST', '/api/repo-analysis/analyze-url', body),
     };
   }, [getToken]);
 }
