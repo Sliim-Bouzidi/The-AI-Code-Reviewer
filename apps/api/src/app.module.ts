@@ -14,6 +14,7 @@ import { RealtimeService } from './realtime/realtime.service.js';
 import { LlmSettingsController } from './settings/llm-settings.controller.js';
 import { ReposController } from './repos/repos.controller.js';
 import { ReposService } from './repos/repos.service.js';
+import { RepoAnalysisController } from './repos/repo-analysis.controller.js';
 import { ReviewsController } from './reviews/reviews.controller.js';
 
 import { TestGenerationController } from './test-generation/test-generation.controller.js';
@@ -39,7 +40,7 @@ class HealthController {
     ),
   ],
   controllers: [
-    HealthController, WebhookController, GithubController, ReposController, ReviewsController, KeysController,
+    HealthController, WebhookController, GithubController, ReposController, RepoAnalysisController, ReviewsController, KeysController,
     NotificationsController, LlmSettingsController, EvalsController, ClerkSetupController, TestGenerationController,
   ],
   providers: [AuthGuard, GithubService, ReposService, RealtimeService, TestGenerationService],

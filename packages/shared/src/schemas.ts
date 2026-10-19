@@ -377,3 +377,35 @@ export const CreateApiKeyBodySchema = z.object({ name: z.string().min(1).max(80)
 /** `key` is the raw key and is returned exactly once. */
 export const CreateApiKeyResponseSchema = ApiKeySchema.extend({ key: z.string() });
 export type CreateApiKeyResponse = z.infer<typeof CreateApiKeyResponseSchema>;
+
+// ---------- repository analysis ----------
+/** POST /api/repo-analysis/analyze-url: Analyze a GitHub repository by URL. */
+export const AnalyzeRepoUrlBodySchema = z.object({
+  repoUrl: z.string().url().regex(/github\.com/, 'Must be a GitHub repository URL'),
+});
+export type AnalyzeRepoUrlBody = z.infer<typeof AnalyzeRepoUrlBodySchema>;
+
+export const RepoAnalysisResultSchema = z.object({
+  repoUrl: z.string(),
+  fullName: z.string(),
+  description: z.string().nullable(),
+  score: z.number().min(0).max(100),
+  summary: z.string(),
+  strengths: z.array(z.string()),
+  concerns: z.array(z.string()),
+  recommendation: z.string(),
+  metadata: z.object({
+    stars: z.number(),
+    forks: z.number(),
+    openIssues: z.number(),
+    language: z.string().nullable(),
+    license: z.string().nullable(),
+    archived: z.boolean(),
+    lastPush: z.string(),
+    daysSinceLastPush: z.number(),
+    recentCommits: z.number(),
+    recentPRs: z.number(),
+    recentIssues: z.number(),
+  }),
+});
+export type RepoAnalysisResult = z.infer<typeof RepoAnalysisResultSchema>;

@@ -69,6 +69,22 @@ claude mcp add --transport http codereview http://localhost:4100/mcp \
 
 Slash commands: `/mcp__codereview__review` (review your local changes), `/mcp__codereview__review_pr`, `/mcp__codereview__fix_findings`, `/mcp__codereview__search`.
 
+## Analyze Any GitHub Repository
+
+New feature: Get an AI-powered assessment of any public GitHub repository!
+
+```bash
+node scripts/test-repo-analysis.mjs https://github.com/owner/repo <your-api-key>
+```
+
+The analysis provides:
+- Quality score (0-100)
+- Key strengths and concerns
+- Activity metrics (stars, forks, recent commits)
+- Recommendation on whether to use/contribute
+
+See [REPO_ANALYSIS.md](REPO_ANALYSIS.md) for full documentation and API usage.
+
 ## How a review works
 
 1. **Webhook:** verify the signature, dedupe, enqueue, answer `200`.

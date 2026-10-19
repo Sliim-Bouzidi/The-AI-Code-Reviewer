@@ -1,8 +1,9 @@
 'use client';
 
 import type {
-  EvalRun, GeneratedTestDetailDto, GeneratedTestSummaryDto, LlmSettingsResponse, PaginatedReviews, Repo, RepoSettings, ReviewWithFindings, Stats, TestGenerationDetailsDto, TestGenerationStatusResponseDto, TestGenerationSummaryDto, TestLlmResponse,
-  TriggerTestGenerationResponseDto, UpdateLlmSettings, UpdateRepoSettings,
+  AnalyzeRepoUrlBody, EvalRun, GeneratedTestDetailDto, GeneratedTestSummaryDto, LlmSettingsResponse, PaginatedReviews, Repo,
+  RepoAnalysisResult, RepoSettings, ReviewWithFindings, Stats, TestGenerationDetailsDto, TestGenerationStatusResponseDto,
+  TestGenerationSummaryDto, TestLlmResponse, TriggerTestGenerationResponseDto, UpdateLlmSettings, UpdateRepoSettings,
 } from '@codereview/shared';
 import * as React from 'react';
 import { useGetToken } from './auth';
@@ -144,6 +145,8 @@ export function useApi() {
         request<TestGenerationStatusResponseDto>('GET', `/api/test-generations/${id}/status`),
       generatedTest: (testId: string) =>
         request<GeneratedTestDetailDto>('GET', `/api/generated-tests/${testId}`),
+      analyzeRepo: (body: AnalyzeRepoUrlBody) =>
+        request<RepoAnalysisResult>('POST', '/api/repo-analysis/analyze-url', body),
     };
   }, [getToken]);
 }
