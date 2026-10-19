@@ -1,11 +1,12 @@
 'use client';
 
 import type { Finding, Severity } from '@codereview/shared';
-import { IconArrowLeft, IconBrandGithub, IconFile } from '@tabler/icons-react';
+import { IconArrowLeft, IconBrandGithub, IconCopy, IconFile } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import * as React from 'react';
+import { copyText } from '@/components/copy-block';
 import PageContainer from '@/components/layout/page-container';
 import { LoadError, RowsSkeleton } from '@/components/query-state';
 import { RerunReviewButton } from '@/components/rerun-review-button';
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { useApi } from '@/lib/api';
+import { canExportReviewMarkdown, formatReviewMarkdown } from '@/lib/review-markdown';
 import { formatDuration, timeAgo } from '@/lib/utils';
 
 const rank = (s: Severity) => SEVERITY_ORDER.indexOf(s);
@@ -96,6 +98,22 @@ export default function ReviewPage() {
       }
       action={
         <div className='flex items-center gap-3'>
+          {r && canExportReviewMarkdown(r) && (
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() =>
+                void copyText(
+                  formatReviewMarkdown({ review: r, repoFullName: repo?.fullName }),
+                  'Markdown copied',
+                )
+              }
+            >
+              <IconCopy className='size-4' />
+              Copy Markdown
+            </Button>
+          )}
           {canRerun && <RerunReviewButton reviewId={id} />}
           {repo && r?.prNumber != null && (
             <a

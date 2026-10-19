@@ -10,9 +10,11 @@ Captured from the local Docker stack (`docker compose up`) against `http://local
 | `03-overview.png` | Dashboard overview | Empty stats (0 reviews / findings / active repos) |
 | `04-repositories.png` | Repositories list | Repos installed; reviews off; indexing not set up |
 | `05-repo-detail.png` | Repo detail (`The-AI-Code-Reviewer`) | Reviews tab empty state; Settings tab available |
-| `06-review-detail.png` | One review (timeline + findings) | Skipped — no reviews yet |
+| `06-review-detail.png` | One review (timeline + findings) | See `10-copy-markdown.png` (seeded sample review) |
 | `07-quality.png` | Quality / evals | Empty state; Run evals available |
 | `08-ai-providers.png` | AI providers | Main / fallback / indexing not configured |
 | `09-api-keys.png` | API keys and MCP | No keys yet; MCP JSON install block shown |
+| `10-copy-markdown.png` | Review detail + **Copy Markdown** | Sample PR #12 with 2 findings; button in the action row |
+| `11-copy-markdown-clicked.png` | After clicking Copy Markdown | Same view (clipboard toast may be blocked in automation) |
 
 Not in this set (no browser UI): MCP slash commands in an IDE, GitHub inline PR comments, worker logs.
