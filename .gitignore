@@ -10,12 +10,3 @@ dist
 coverage
 dev.log
 .runtime
-
-# LaTeX build output
-docs/report/*.aux
-docs/report/*.toc
-docs/report/*.out
-docs/report/*.pdf
-docs/report/*.fls
-docs/report/*.fdb_latexmk
-docs/report/*.synctex.gz

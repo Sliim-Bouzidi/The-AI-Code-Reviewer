@@ -1,6 +1,6 @@
 # AI Code Reviewer
 
-The technical report, architecture diagrams, and UI wireframes are in [docs/](docs/).
+The technical report (PDF) is in [docs/AI-Code-Reviewer.pdf](docs/AI-Code-Reviewer.pdf).
 
 An AI reviewer for GitHub pull requests. It reads the diff **and** the surrounding codebase (Tree-sitter + pgvector + Semgrep), asks an LLM for findings, and posts them as inline comments on the PR. The same engine is available inside Claude Code through an MCP server.
 
