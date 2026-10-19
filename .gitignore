@@ -10,3 +10,5 @@ dist
 coverage
 dev.log
 .runtime
+*.tsbuildinfo
+*.before-live*.md

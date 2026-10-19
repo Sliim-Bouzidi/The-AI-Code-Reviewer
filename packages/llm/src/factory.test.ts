@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { createEmbedderFromEnv, createProvidersFromEnv, embedderId, llmConfigured, resolveEmbeddingProvider, resolveProviders } from './factory.js';
+import {
+  createEmbedderFromEnv,
+  createProvidersFromEnv,
+  createTwoTierProvidersFromEnv,
+  embedderId,
+  isFreeProvider,
+  llmConfigured,
+  resolveEmbeddingProvider,
+  resolveProviders,
+} from './factory.js';
 
 const names = (env: NodeJS.ProcessEnv) => createProvidersFromEnv(env).map((p) => `${p.name}:${p.model}`);
 
@@ -62,5 +71,32 @@ describe('paid providers and embedding choice', () => {
     const e = createEmbedderFromEnv({ OPENAI_API_KEY: 'o' })!;
     expect(embedderId(e)).toBe('openai:text-embedding-3-small');
     expect(e.dim).toBe(768);
+  });
+
+  it('correctly identifies free vs paid providers without assuming free status', () => {
+    expect(isFreeProvider('gemini', 'gemini-1.5-flash', {})).toBe(true);
+    expect(isFreeProvider('gemini', 'gemini-1.5-flash', { GEMINI_PAID: 'true' })).toBe(false);
+
+    // OpenRouter is only free if model ends with :free
+    expect(isFreeProvider('openrouter', 'meta-llama/llama-3.3-70b-instruct:free', {})).toBe(true);
+    expect(isFreeProvider('openrouter', 'meta-llama/llama-3.3-70b-instruct', {})).toBe(false);
+    expect(isFreeProvider('openrouter', 'anthropic/claude-3.5-sonnet', {})).toBe(false);
+
+    // OpenAI and Anthropic are strictly paid
+    expect(isFreeProvider('anthropic', 'claude-3-5-sonnet-20241022', {})).toBe(false);
+    expect(isFreeProvider('openai-api', 'gpt-4o', {})).toBe(false);
+
+    // Two-tier prioritizes free tier for economic triage
+    const tiers = createTwoTierProvidersFromEnv({
+      GEMINI_API_KEY: 'g',
+      LLM_MODEL: 'gemini-1.5-flash',
+      ANTHROPIC_API_KEY: 'a',
+      LLM_PROVIDER_POWERFUL: 'anthropic',
+      LLM_MODEL_POWERFUL: 'claude-3-5-sonnet-20241022',
+    });
+    expect(tiers.economic[0]?.name).toBe('gemini');
+    expect(tiers.economic[0]?.isFree).toBe(true);
+    expect(tiers.powerful[0]?.name).toBe('anthropic');
+    expect(tiers.powerful[0]?.isFree).toBe(false);
   });
 });

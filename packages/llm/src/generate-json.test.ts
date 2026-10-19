@@ -48,4 +48,40 @@ describe('generateJson', () => {
     const res = await generateJson([a], { system: 's', prompt: 'p', schema, backoffMs: 1 });
     expect(res.data.ok).toBe(true);
   });
+
+  it('does not retry when quota is exhausted and blocks fallback to paid provider', async () => {
+    const freeProvider: LlmProvider & { calls: string[] } = {
+      name: 'gemini-free',
+      model: 'gemini-1.5-flash',
+      isFree: true,
+      calls: [],
+      async generate({ prompt }) {
+        this.calls.push(prompt);
+        throw new LlmError('gemini: HTTP 429 RESOURCE_EXHAUSTED Quota exceeded', 429, false, true);
+      },
+    };
+
+    const paidProvider: LlmProvider & { calls: string[] } = {
+      name: 'anthropic-paid',
+      model: 'claude-3-5-sonnet-20241022',
+      isFree: false,
+      calls: [],
+      async generate({ prompt }) {
+        this.calls.push(prompt);
+        return { text: '{"ok":true}', tokensIn: 10, tokensOut: 5 };
+      },
+    };
+
+    await expect(
+      generateJson([freeProvider, paidProvider], {
+        system: 's',
+        prompt: 'p',
+        schema,
+        preventPaidFallbackOnQuota: true,
+      })
+    ).rejects.toThrow(/Quota exhausted for gemini-free.*Automatic fallback to paid provider anthropic-paid.*was blocked/);
+
+    expect(freeProvider.calls.length).toBe(1); // No useless retries on quota exhaustion
+    expect(paidProvider.calls.length).toBe(0); // Paid provider was never called!
+  });
 });

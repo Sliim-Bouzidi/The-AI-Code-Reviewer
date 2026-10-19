@@ -109,3 +109,42 @@ export function addedText(file: DiffFile, maxChars = 4_000): string {
     .join('\n')
     .slice(0, maxChars);
 }
+
+/**
+ * Reconstructs a file's content from its diff hunks (for local diffs without a repository checkout).
+ * Places lines at their newStart positions, padding line gaps with empty lines so that line numbers
+ * match the diff exactly for static analysis tools (e.g. Semgrep) and AST parsers.
+ */
+export function reconstructFileFromDiff(file: DiffFile): string {
+  if (file.status === 'deleted' || file.binary || file.hunks.length === 0) {
+    return '';
+  }
+
+  const linesByNumber = new Map<number, string>();
+  let maxLine = 0;
+
+  for (const hunk of file.hunks) {
+    let currentLine = hunk.newStart;
+    for (const rawLine of hunk.lines) {
+      if (rawLine.startsWith('-')) {
+        // Deleted line from old file, not in new file
+        continue;
+      }
+      // Added ('+') or context (' ') line
+      const content = rawLine.length > 0 ? rawLine.slice(1) : '';
+      linesByNumber.set(currentLine, content);
+      if (currentLine > maxLine) maxLine = currentLine;
+      currentLine++;
+    }
+  }
+
+  if (maxLine === 0) return '';
+
+  const fullLines: string[] = [];
+  for (let i = 1; i <= maxLine; i++) {
+    fullLines.push(linesByNumber.get(i) ?? '');
+  }
+
+  return fullLines.join('\n');
+}
+

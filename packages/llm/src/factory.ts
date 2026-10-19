@@ -4,12 +4,34 @@ import { OpenAIEmbedder, OpenAIProvider } from './openai.js';
 import { OpenAICompatibleProvider, OpenRouterProvider } from './openrouter.js';
 import type { EmbeddingProvider, LlmCallInput, LlmProvider } from './types.js';
 
+/**
+ * Determines whether a provider and model pair operates on a verified free tier.
+ * Never assumes a provider is free simply because a model is available.
+ * OpenRouter models must end with ':free'. Gemini uses Google AI Studio free tier unless GEMINI_PAID is set.
+ * Anthropic and OpenAI direct APIs are strictly paid.
+ */
+export function isFreeProvider(name: ProviderName, model?: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (name === 'gemini') {
+    return env.GEMINI_PAID !== 'true';
+  }
+  if (name === 'openrouter') {
+    // Only models with explicit ':free' slug or the official auto-router 'openrouter/free' are verified free
+    return typeof model === 'string' && (model.endsWith(':free') || model === 'openrouter/free');
+  }
+  if (name === 'openai') {
+    // OpenAI-compatible free hosts (Groq, Cerebras, NVIDIA NIM free tier)
+    return Boolean(env.OPENAI_COMPAT_BASE_URL && env.OPENAI_COMPAT_API_KEY);
+  }
+  return false;
+}
+
 /** Spaces calls out so a free-tier requests-per-minute limit is not hit. */
 export function throttled(provider: LlmProvider, minIntervalMs: number): LlmProvider {
   let next = 0;
   return {
     name: provider.name,
     model: provider.model,
+    isFree: provider.isFree,
     async generate(input: LlmCallInput) {
       const wait = Math.max(0, next - Date.now());
       next = Math.max(Date.now(), next) + minIntervalMs;
@@ -27,16 +49,31 @@ export type ProviderName = 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'o
 export const PROVIDER_NAMES: readonly ProviderName[] = ['gemini', 'openrouter', 'openai', 'anthropic', 'openai-api'];
 
 /** Builds one provider from env, or null when its key/model are missing. */
+export function createProvider(name: ProviderName, model: string | undefined, env: NodeJS.ProcessEnv = process.env): LlmProvider | null {
+  return make(env, name, model);
+}
+
 function make(env: NodeJS.ProcessEnv, name: ProviderName, model: string | undefined): LlmProvider | null {
   if (!model) return null;
-  if (name === 'gemini') return env.GEMINI_API_KEY ? new GeminiProvider(env.GEMINI_API_KEY, model) : null;
-  if (name === 'openrouter') return env.OPENROUTER_API_KEY ? new OpenRouterProvider(env.OPENROUTER_API_KEY, model) : null;
-  if (name === 'anthropic') return env.ANTHROPIC_API_KEY ? new AnthropicProvider(env.ANTHROPIC_API_KEY, model) : null;
-  if (name === 'openai-api') return env.OPENAI_API_KEY ? new OpenAIProvider(env.OPENAI_API_KEY, model) : null;
-  // any OpenAI-compatible endpoint: NVIDIA NIM, Groq, Cerebras, ... (label taken from the host)
-  if (!env.OPENAI_COMPAT_BASE_URL || !env.OPENAI_COMPAT_API_KEY) return null;
-  const label = env.OPENAI_COMPAT_NAME || new URL(env.OPENAI_COMPAT_BASE_URL).hostname.split('.').slice(-2, -1)[0] || 'openai';
-  return new OpenAICompatibleProvider(label, env.OPENAI_COMPAT_BASE_URL, env.OPENAI_COMPAT_API_KEY, model);
+  const isFree = isFreeProvider(name, model, env);
+  let provider: LlmProvider | null = null;
+  if (name === 'gemini') provider = env.GEMINI_API_KEY ? new GeminiProvider(env.GEMINI_API_KEY, model) : null;
+  else if (name === 'openrouter') provider = env.OPENROUTER_API_KEY ? new OpenRouterProvider(env.OPENROUTER_API_KEY, model) : null;
+  else if (name === 'anthropic') provider = env.ANTHROPIC_API_KEY ? new AnthropicProvider(env.ANTHROPIC_API_KEY, model) : null;
+  else if (name === 'openai-api') provider = env.OPENAI_API_KEY ? new OpenAIProvider(env.OPENAI_API_KEY, model) : null;
+  else if (env.OPENAI_COMPAT_BASE_URL && env.OPENAI_COMPAT_API_KEY) {
+    const label = env.OPENAI_COMPAT_NAME || new URL(env.OPENAI_COMPAT_BASE_URL).hostname.split('.').slice(-2, -1)[0] || 'openai';
+    provider = new OpenAICompatibleProvider(label, env.OPENAI_COMPAT_BASE_URL, env.OPENAI_COMPAT_API_KEY, model);
+  }
+  if (provider) {
+    return {
+      name: provider.name,
+      model: provider.model,
+      isFree,
+      generate: (input) => provider!.generate(input),
+    };
+  }
+  return null;
 }
 
 const asProvider = (value: string | undefined): ProviderName | undefined =>
@@ -65,9 +102,9 @@ export function resolveProviders(env: NodeJS.ProcessEnv = process.env): {
 
 /**
  * Resolves separate Economic (triage) and Powerful (deep analysis) provider tiers.
- * Economic tier uses LLM_PROVIDER_ECONOMIC & LLM_MODEL_ECONOMIC (fallback to LLM_PROVIDER / LLM_MODEL).
- * Powerful tier uses LLM_PROVIDER_POWERFUL & LLM_MODEL_POWERFUL (fallback to LLM_FALLBACK_PROVIDER / LLM_FALLBACK_MODEL).
- * If powerful tier is unconfigured or identical, fallback to economic provider list safely.
+ * Economic tier uses LLM_PROVIDER_ECONOMIC & LLM_MODEL_ECONOMIC, prioritizing verified free tiers
+ * (Gemini free tier, OpenRouter :free models, or OpenAI-compatible hosts).
+ * Powerful tier uses LLM_PROVIDER_POWERFUL & LLM_MODEL_POWERFUL for deep analysis on escalated items.
  */
 export function createTwoTierProvidersFromEnv(env: NodeJS.ProcessEnv = process.env): {
   economic: LlmProvider[];
@@ -75,8 +112,24 @@ export function createTwoTierProvidersFromEnv(env: NodeJS.ProcessEnv = process.e
 } {
   const interval = Number(env.LLM_MIN_INTERVAL_MS ?? 4500);
 
-  const econName = asProvider(env.LLM_PROVIDER_ECONOMIC) ?? asProvider(env.LLM_PROVIDER) ?? 'gemini';
-  const econModel = env.LLM_MODEL_ECONOMIC ?? env.LLM_MODEL;
+  // Economic tier: priority favors free providers
+  let econName = asProvider(env.LLM_PROVIDER_ECONOMIC) ?? asProvider(env.LLM_PROVIDER);
+  let econModel = env.LLM_MODEL_ECONOMIC ?? env.LLM_MODEL;
+
+  if (!econName) {
+    if (env.GEMINI_API_KEY) {
+      econName = 'gemini';
+      econModel = econModel ?? 'gemini-1.5-flash';
+    } else if (env.OPENROUTER_API_KEY) {
+      econName = 'openrouter';
+      econModel = econModel ?? 'meta-llama/llama-3.3-70b-instruct:free';
+    } else if (env.OPENAI_COMPAT_BASE_URL) {
+      econName = 'openai';
+    } else {
+      econName = 'gemini';
+    }
+  }
+
   const econProvider = make(env, econName, econModel);
 
   const powName =

@@ -9,7 +9,7 @@ import type { TargetedContextOptions } from './targeted-context.js';
 import type { ParsedFile } from '../index/symbols.js';
 import { buildAlertBatches, buildBatchEscalationPrompt, buildBatchPrompt } from './batch-builder.js';
 import type { AlertBatch, AlertBatchItem, BatchingOptions } from './batch-builder.js';
-import { createCacheKey, estimateSavedCostUsd } from './llm-cache.js';
+import { computeFileContentHash, createCacheKey, createSyntheticFileCacheKey, estimateSavedCostUsd } from './llm-cache.js';
 import type { CacheEntry, LlmCacheStore } from './llm-cache.js';
 
 export const SYSTEM_PROMPT = `You are a senior engineer reviewing one file of a pull request.
@@ -40,6 +40,7 @@ Answer with ONLY a JSON object:
     "reason": "concise explanation of decision"
   }]
 }
+Keep findings, messages and reasons strictly under 2 sentences to minimize token output. Never include redundant prose.
 If there is nothing worth reporting and no semgrep alerts, return "findings": [], "semgrep_decisions": [].`;
 
 export function buildPrompt(
@@ -161,8 +162,11 @@ export async function reviewFile(
       system: SYSTEM_PROMPT,
       prompt: buildPrompt(file, context, rules, strictness, options),
       schema: LlmReviewOutputSchema,
+      maxOutputTokens: 1500,
+      signal: options?.abortSignal,
     });
-  } catch {
+  } catch (err) {
+    if (options?.abortSignal?.aborted) throw err;
     t1Failed = true;
     res1 = null;
   }
@@ -328,8 +332,11 @@ export async function reviewFile(
       system: SYSTEM_PROMPT,
       prompt: escPrompt,
       schema: LlmReviewOutputSchema,
+      maxOutputTokens: 2000,
+      signal: options?.abortSignal,
     });
-  } catch {
+  } catch (err) {
+    if (options?.abortSignal?.aborted) throw err;
     t2Failed = true;
     res2 = null;
   }
@@ -460,6 +467,7 @@ export interface BatchReviewOptions {
     escalateOnInvalidResponse?: boolean;
     escalateOnLowConfidence?: boolean;
   };
+  abortSignal?: AbortSignal;
 }
 
 export interface BatchReviewResult {
@@ -511,6 +519,20 @@ export async function reviewBatches(
   let savedTokensOut = 0;
   let cacheErrors = 0;
 
+  const cacheWritePromises: Promise<void>[] = [];
+  const persistCacheEntry = (key: string, entry: CacheEntry) => {
+    if (!cacheStore) return;
+    cacheWritePromises.push(
+      (async () => {
+        try {
+          await cacheStore.set(key, entry);
+        } catch {
+          cacheErrors++;
+        }
+      })()
+    );
+  };
+
   let t1Provider = llm[0]?.name ?? 'unknown';
   let t1Model = llm[0]?.model ?? 'unknown';
 
@@ -523,23 +545,41 @@ export async function reviewBatches(
   for (const batch of batches) {
     const uncachedItems: AlertBatchItem[] = [];
 
-    // Check item-level cache for each alert in the batch
+    // Check item-level cache for each alert or synthetic file in the batch
     for (const item of batch.items) {
-      if (item.isSyntheticFileItem || !enableCache || !cacheStore) {
+      if (!enableCache || !cacheStore) {
         uncachedItems.push(item);
         continue;
       }
 
-      const key = createCacheKey({
-        targetedContext: item.targetedContext,
-        alert: item,
-        tier: 1,
-        provider: t1Provider,
-        model: t1Model,
-        rules,
-        strictness,
-        escalationPolicy: policy,
-      });
+      let key: string;
+      if (item.isSyntheticFileItem) {
+        const contentHash = computeFileContentHash(
+          fileContents.get(item.filePath),
+          item.file,
+          item.targetedContext,
+        );
+        key = createSyntheticFileCacheKey({
+          filePath: item.filePath,
+          fileContentHash: contentHash,
+          targetedContext: item.targetedContext,
+          provider: t1Provider,
+          model: t1Model,
+          rules,
+          strictness,
+        });
+      } else {
+        key = createCacheKey({
+          targetedContext: item.targetedContext,
+          alert: item,
+          tier: 1,
+          provider: t1Provider,
+          model: t1Model,
+          rules,
+          strictness,
+          escalationPolicy: policy,
+        });
+      }
 
       let cached: CacheEntry | null = null;
       try {
@@ -569,10 +609,18 @@ export async function reviewBatches(
     }
 
     // Build sub-batch for uncached items
+    const uncachedFilePaths = new Set(uncachedItems.map((i) => i.filePath));
+    const subBatchFileContexts = new Map<string, string>();
+    for (const [path, ctx] of batch.fileContexts.entries()) {
+      if (uncachedFilePaths.has(path)) {
+        subBatchFileContexts.set(path, ctx);
+      }
+    }
+
     const subBatch: AlertBatch = {
       id: `${batch.id}-uncached`,
       items: uncachedItems,
-      fileContexts: batch.fileContexts,
+      fileContexts: subBatchFileContexts.size > 0 ? subBatchFileContexts : batch.fileContexts,
       totalEstimatedTokens: uncachedItems.reduce((sum, i) => sum + i.estimatedTokens, 0),
     };
 
@@ -585,6 +633,8 @@ export async function reviewBatches(
         system: SYSTEM_PROMPT,
         prompt,
         schema: LlmReviewOutputSchema,
+        maxOutputTokens: 1500,
+        signal: options?.abortSignal,
       });
 
       totalLatencyMs += Date.now() - startMs;
@@ -614,18 +664,16 @@ export async function reviewBatches(
                   strictness,
                   escalationPolicy: policy,
                 });
-                cacheStore
-                  .set(key, {
-                    decision: d.decision as SemgrepDecisionState,
-                    reason: d.reason ?? '',
-                    provider: t1Provider,
-                    model: t1Model,
-                    tier: 1,
-                    tokensIn: res1.tokensIn,
-                    tokensOut: res1.tokensOut,
-                    createdAt: new Date().toISOString(),
-                  })
-                  .catch(() => cacheErrors++);
+                persistCacheEntry(key, {
+                  decision: d.decision as SemgrepDecisionState,
+                  reason: d.reason ?? '',
+                  provider: t1Provider,
+                  model: t1Model,
+                  tier: 1,
+                  tokensIn: res1.tokensIn,
+                  tokensOut: res1.tokensOut,
+                  createdAt: new Date().toISOString(),
+                });
               }
             }
           }
@@ -647,7 +695,64 @@ export async function reviewBatches(
           });
         }
       }
-    } catch {
+
+      // Store synthetic file item evaluations in cache
+      if (enableCache && cacheStore) {
+        const uncachedSynthetic = uncachedItems.filter((i) => i.isSyntheticFileItem);
+        for (const synthItem of uncachedSynthetic) {
+          // Strictly isolate findings belonging to this file only
+          const fileFindings: CandidateFinding[] = (res1.data.findings ?? [])
+            .filter((f) => f.file === synthItem.filePath)
+            .map((f) => ({
+              filePath: f.file,
+              lineStart: f.line_start,
+              lineEnd: f.line_end ?? null,
+              severity: f.severity,
+              category: f.category,
+              source: 'llm' as const,
+              message: f.message,
+              suggestion: f.suggestion ?? null,
+              confidence: f.confidence,
+            }));
+
+          const contentHash = computeFileContentHash(
+            fileContents.get(synthItem.filePath),
+            synthItem.file,
+            synthItem.targetedContext,
+          );
+          const key = createSyntheticFileCacheKey({
+            filePath: synthItem.filePath,
+            fileContentHash: contentHash,
+            targetedContext: synthItem.targetedContext,
+            provider: t1Provider,
+            model: t1Model,
+            rules,
+            strictness,
+          });
+
+          const synthTokensIn = uncachedItems.length > 0 ? Math.round(res1.tokensIn / uncachedItems.length) : res1.tokensIn;
+          const synthTokensOut = uncachedItems.length > 0 ? Math.round(res1.tokensOut / uncachedItems.length) : res1.tokensOut;
+
+          t1DecisionsMap.set(synthItem.id, {
+            decision: 'CONFIRMED',
+            reason: fileFindings.length > 0 ? `Found ${fileFindings.length} issue(s)` : 'General file review clean',
+          });
+
+          persistCacheEntry(key, {
+            decision: 'CONFIRMED',
+            reason: fileFindings.length > 0 ? `Found ${fileFindings.length} issue(s)` : 'General file review clean',
+            findings: fileFindings,
+            provider: t1Provider,
+            model: t1Model,
+            tier: 1,
+            tokensIn: synthTokensIn,
+            tokensOut: synthTokensOut,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (err) {
+      if (options?.abortSignal?.aborted) throw err;
       totalLatencyMs += Date.now() - startMs;
       // On Tier 1 batch failure, all items in this sub-batch are unverified (missing)
     }
@@ -657,12 +762,23 @@ export async function reviewBatches(
   const itemsToEscalate: AlertBatchItem[] = [];
   let globalEscalationReason: string | null = null;
 
+  const isSameModel =
+    powerfulProviders.length > 0 &&
+    powerfulProviders[0]?.name === llm[0]?.name &&
+    powerfulProviders[0]?.model === llm[0]?.model;
+
   for (const batch of batches) {
     for (const item of batch.items) {
       if (item.isSyntheticFileItem) continue;
 
       const dec = t1DecisionsMap.get(item.id);
       let escalateThis = false;
+
+      // When Tier 1 and Tier 2 use the identical model, avoid duplicate escalation
+      // if the model already gave a firm decision.
+      if (isSameModel && dec && dec.decision !== 'UNCERTAIN') {
+        continue;
+      }
 
       // Trigger 1: UNCERTAIN decision or missing decision
       if (!dec) {
@@ -673,8 +789,8 @@ export async function reviewBatches(
         globalEscalationReason ??= `UNCERTAIN decision on alert ${item.id}`;
       }
 
-      // Trigger 2: High or Critical severity alert
-      if (['critical', 'high'].includes(item.severity) && policy.escalateOnHighSeverity !== false) {
+      // Trigger 2: High or Critical severity alert (escalate to distinct powerful Tier 2 model)
+      if (['critical', 'high'].includes(item.severity) && policy.escalateOnHighSeverity !== false && !isSameModel) {
         escalateThis = true;
         globalEscalationReason ??= `High/Critical severity alert ${item.ruleId} (${item.severity})`;
       }
@@ -782,6 +898,8 @@ export async function reviewBatches(
             system: SYSTEM_PROMPT,
             prompt: escPrompt,
             schema: LlmReviewOutputSchema,
+            maxOutputTokens: 2000,
+            signal: options?.abortSignal,
           });
 
           totalLatencyMs += Date.now() - startMs;
@@ -808,18 +926,16 @@ export async function reviewBatches(
                       strictness,
                       escalationPolicy: policy,
                     });
-                    cacheStore
-                      .set(t2Key, {
-                        decision: d.decision as SemgrepDecisionState,
-                        reason: d.reason ?? '',
-                        provider: t2Provider,
-                        model: t2Model,
-                        tier: 2,
-                        tokensIn: res2.tokensIn,
-                        tokensOut: res2.tokensOut,
-                        createdAt: new Date().toISOString(),
-                      })
-                      .catch(() => cacheErrors++);
+                    persistCacheEntry(t2Key, {
+                      decision: d.decision as SemgrepDecisionState,
+                      reason: d.reason ?? '',
+                      provider: t2Provider,
+                      model: t2Model,
+                      tier: 2,
+                      tokensIn: res2.tokensIn,
+                      tokensOut: res2.tokensOut,
+                      createdAt: new Date().toISOString(),
+                    });
                   }
                 }
               }
@@ -841,7 +957,8 @@ export async function reviewBatches(
               });
             }
           }
-        } catch {
+        } catch (err) {
+          if (options?.abortSignal?.aborted) throw err;
           totalLatencyMs += Date.now() - startMs;
           // Tier 2 batch failure -> fallback handled below
         }
@@ -918,6 +1035,11 @@ export async function reviewBatches(
   const totalEstimatedTokens = batches.reduce((sum, b) => sum + b.totalEstimatedTokens, 0);
 
   const summary = batchSummaries.length > 0 ? batchSummaries.join(' | ') : 'Batch review completed';
+
+  // Await all cache writes to guarantee persistence before returning and ensure accurate cacheErrors count
+  if (cacheWritePromises.length > 0) {
+    await Promise.all(cacheWritePromises);
+  }
 
   const totalItemCount = cacheHits + cacheMisses;
   const cacheHitRatio = totalItemCount > 0 ? cacheHits / totalItemCount : 0;

@@ -21,8 +21,10 @@ export class OpenAICompatibleProvider implements LlmProvider {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },
+        signal: input.signal,
         body: JSON.stringify({
           model: this.model,
+          max_tokens: input.maxOutputTokens ?? 1500,
           ...(this.sendTemperature ? { temperature: input.temperature ?? 0.2 } : {}),
           messages: [
             { role: 'system', content: input.system },

@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   eq, findings as findingsTable, installations, pullRequests, repoSettings, repositories, reviewEvents, reviews,
 } from '@codereview/db';
@@ -15,7 +15,7 @@ import { publish } from '../pubsub.js';
 import { downloadFiles, fetchPrDiff, postReview, reactToPr, repoRef, startCheckRun, updateCheckRun } from '../github.js';
 import type { RepoRef } from '../github.js';
 import { retrieveContext } from './context.js';
-import { parseUnifiedDiff } from './diff.js';
+import { parseUnifiedDiff, reconstructFileFromDiff } from './diff.js';
 import { emit, STAGE_LABELS, timed } from './events.js';
 import type { Stage } from './events.js';
 import { filterReviewable } from './filter.js';
@@ -145,11 +145,50 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
         },
       );
       await progress('parse', `${[...changedNames.values()].reduce((n, s) => n + s.length, 0)} changed symbol(s)`);
+    } else if (files.length > 0) {
+      // Local diff: reconstruct changed files in a temporary directory for static analysis and AST parsing
+      await timed(
+        db,
+        review.id,
+        'parse',
+        async () => {
+          const dir = await mkdtemp(join(tmpdir(), 'codereview-local-'));
+          tmp.dir = dir;
+          const resolvedDir = resolve(dir);
+          for (const file of files) {
+            try {
+              const content = reconstructFileFromDiff(file);
+              if (!content) continue;
+              const target = resolve(dir, file.path);
+              if (!target.startsWith(resolvedDir)) {
+                // Prevent path traversal outside the temp directory
+                continue;
+              }
+              await mkdir(dirname(target), { recursive: true });
+              await writeFile(target, content, 'utf8');
+              fileContents.set(file.path, content);
+              const parsed = await parseFile(file.path, content);
+              if (!parsed) continue;
+              parsedFiles.set(file.path, parsed);
+              const touched = changedSymbols(parsed, file.addedLines);
+              changedNames.set(file.path, touched.map((s) => s.name));
+              called.set(file.path, [...new Set(touched.flatMap((s) => s.calls))]);
+            } catch {
+              // file could not be reconstructed or parsed: non-blocking
+            }
+          }
+        },
+        () => {
+          const symbols = [...changedNames.values()].reduce((n, s) => n + s.length, 0);
+          return `${symbols} changed symbol(s) parsed from local diff`;
+        },
+      );
+      await progress('parse', `${[...changedNames.values()].reduce((n, s) => n + s.length, 0)} changed symbol(s)`);
     } else {
-      await emit(db, review.id, 'parse', 'skipped', 'local diff: no file contents to parse');
+      await emit(db, review.id, 'parse', 'skipped', 'no reviewable files');
     }
 
-    // ---- 4. static analysis (needs real files, so PR reviews only)
+    // ---- 4. static analysis
     const candidates: CandidateFinding[] = [];
     if (tmp.dir) {
       const dir = tmp.dir;
@@ -157,7 +196,7 @@ export async function runReview(deps: Deps, job: ReviewJobData): Promise<void> {
       candidates.push(...found);
       await progress('static_analysis', `${found.length} finding(s)`);
     } else {
-      await emit(db, review.id, 'static_analysis', 'skipped', 'local diff or no reviewable files');
+      await emit(db, review.id, 'static_analysis', 'skipped', 'no reviewable files');
     }
 
     // ---- 5. context retrieval: similar code + definitions of the symbols the change calls

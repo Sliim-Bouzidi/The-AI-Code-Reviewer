@@ -26,6 +26,8 @@ export interface TargetedContextOptions {
     escalateOnInvalidResponse?: boolean;
     escalateOnLowConfidence?: boolean;
   };
+  /** Optional cancellation signal to interrupt LLM requests and child network calls */
+  abortSignal?: AbortSignal;
 }
 
 export interface TargetedContextResult {

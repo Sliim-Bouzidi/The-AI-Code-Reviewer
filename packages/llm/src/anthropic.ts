@@ -34,11 +34,11 @@ export class AnthropicProvider implements LlmProvider {
     try {
       response = await this.client.beta.messages.create({
         model: this.model,
-        max_tokens: 16000,
+        max_tokens: input.maxOutputTokens ?? 2048,
         system: input.system,
         messages: [{ role: 'user', content: input.prompt }],
         ...(fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
-      });
+      }, { signal: input.signal });
     } catch (err) {
       throw toLlmError(err);
     }

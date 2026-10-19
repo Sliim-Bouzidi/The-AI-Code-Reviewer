@@ -8,6 +8,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: codereview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -18,7 +32,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm typecheck
-      - run: pnpm test
+      - name: Run DB Migrations
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/codereview
+        run: pnpm db:migrate
+      - name: Run Tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/codereview
+        run: pnpm test
 
   docker:
     runs-on: ubuntu-latest

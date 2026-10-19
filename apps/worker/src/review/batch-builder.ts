@@ -80,7 +80,12 @@ export async function buildAlertBatches(
     fileContextMap.set(file.path, ctx.formattedText);
 
     if (alertsForFile.length > 0) {
+      const seenAlertSignatures = new Set<string>();
       for (const alert of alertsForFile) {
+        const sig = `${alert.ruleId}:${alert.filePath}:${alert.lineStart}:${alert.lineEnd ?? ''}:${alert.message}`;
+        if (seenAlertSignatures.has(sig)) continue;
+        seenAlertSignatures.add(sig);
+
         items.push({
           id: alert.id,
           filePath: alert.filePath,

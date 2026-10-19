@@ -123,7 +123,10 @@ export function aggregateQualityMetrics(cases: Array<{ spec: EvalSpec; found: Sc
     totalCaught += score.caught;
     totalFindings += score.findings;
     totalOnTarget += score.onTarget;
-    falsePositives += Math.max(0, score.findings - score.onTarget) + score.falseAlarms;
+    const caseFp = item.spec.expected.length === 0
+      ? score.falseAlarms
+      : Math.max(0, score.findings - score.onTarget);
+    falsePositives += caseFp;
     falseNegatives += score.expected - score.caught;
 
     const hits = (e: ExpectedIssue) => (f: ScoredFinding) => f.filePath === e.file && overlaps(f, e.lines);

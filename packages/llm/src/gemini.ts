@@ -17,11 +17,13 @@ export class GeminiProvider implements LlmProvider {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': this.apiKey },
+        signal: input.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: input.system }] },
           contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
           generationConfig: {
             temperature: input.temperature ?? 0.2,
+            maxOutputTokens: input.maxOutputTokens ?? 1500,
             ...(input.json ? { responseMimeType: 'application/json' } : {}),
           },
         }),

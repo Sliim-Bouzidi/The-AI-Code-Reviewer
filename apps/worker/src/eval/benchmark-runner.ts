@@ -1,4 +1,5 @@
 import type { Severity } from '@codereview/shared';
+import type { LlmCallInput, LlmCallResult, LlmProvider } from '@codereview/llm';
 import type { EvalSpec, QualityMetrics, ScoredFinding } from './scoring.js';
 import { aggregateQualityMetrics } from './scoring.js';
 import { calculateCallCostUsd } from './pricing.js';
@@ -9,7 +10,11 @@ export type VariantKey =
   | 'semgrep_integration'
   | 'two_tier_routing'
   | 'batched_routing'
-  | 'optimized_pipeline';
+  | 'optimized_pipeline'
+  | 'optimized_warm_cache'
+  | 'free_tier_priority'
+  | 'degraded_no_semgrep'
+  | 'degraded_no_db';
 
 export interface BenchmarkCase {
   id: string;
@@ -31,6 +36,7 @@ export interface VariantBenchmarkResult {
   name: string;
   description: string;
   durationMs: number;
+  wallClockDurationMs: number;
   totalLlmCalls: number;
   tier1Calls: number;
   tier2Calls: number;
@@ -56,6 +62,7 @@ export interface ComparativeBenchmarkReportData {
     tier2Provider: string;
     tier2Model: string;
     cacheEnabled: boolean;
+    isMockEvaluation?: boolean;
   };
   datasetSummary: {
     totalCases: number;
@@ -82,6 +89,217 @@ export interface MockLlmCallRecord {
   isCacheHit?: boolean;
 }
 
+export class CircuitBreakerExceededError extends Error {
+  constructor(
+    message: string,
+    public readonly metric: 'requests' | 'tokens' | 'cost' | 'abort',
+    public readonly value: number
+  ) {
+    super(message);
+    this.name = 'CircuitBreakerExceededError';
+  }
+}
+
+export interface CircuitBreakerLimits {
+  maxRequests?: number;
+  maxTokens?: number;
+  maxCostUsd?: number;
+  abortSignal?: AbortSignal;
+}
+
+export interface ReserveCallOptions {
+  provider: string;
+  model: string;
+  estimatedTokensIn: number;
+  maxOutputTokens?: number;
+  tier?: 'tier1' | 'tier2';
+}
+
+export interface ReservedCallAllocation {
+  id: string;
+  provider: string;
+  model: string;
+  reservedTokensIn: number;
+  reservedTokensOut: number;
+  reservedCostUsd: number;
+  release: (actual?: { tokensIn: number; tokensOut: number; costUsd?: number | null }) => void;
+}
+
+/**
+ * Thread-safe and race-condition free circuit breaker guard.
+ * Synchronously reserves budget before any network call starts, accounting for the maximum possible cost.
+ */
+export class CircuitBreakerGuard {
+  private currentRequests = 0;
+  private currentTokens = 0;
+  private currentCostUsd = 0;
+
+  // Active synchronous reservations for in-flight requests (prevents race condition)
+  private reservedRequests = 0;
+  private reservedTokens = 0;
+  private reservedCostUsd = 0;
+
+  constructor(public readonly limits?: CircuitBreakerLimits) {}
+
+  public get abortSignal(): AbortSignal | undefined {
+    return this.limits?.abortSignal;
+  }
+
+  public checkCeilings(upcomingRequests = 1, upcomingTokens = 0, upcomingCost = 0): void {
+    if (this.limits?.abortSignal?.aborted) {
+      throw new CircuitBreakerExceededError(
+        'Emergency stop triggered: operator abort signal active',
+        'abort',
+        0
+      );
+    }
+    const projectedRequests = this.currentRequests + this.reservedRequests + upcomingRequests;
+    if (this.limits?.maxRequests !== undefined && projectedRequests > this.limits.maxRequests) {
+      throw new CircuitBreakerExceededError(
+        `Circuit breaker tripped: request ceiling of ${this.limits.maxRequests} reached (current: ${this.currentRequests + this.reservedRequests})`,
+        'requests',
+        projectedRequests
+      );
+    }
+    const projectedTokens = this.currentTokens + this.reservedTokens + upcomingTokens;
+    if (this.limits?.maxTokens !== undefined && (projectedTokens > this.limits.maxTokens || (this.currentTokens + this.reservedTokens) >= this.limits.maxTokens)) {
+      throw new CircuitBreakerExceededError(
+        `Circuit breaker tripped: token ceiling of ${this.limits.maxTokens} reached (current: ${this.currentTokens + this.reservedTokens})`,
+        'tokens',
+        projectedTokens
+      );
+    }
+    const projectedCost = this.currentCostUsd + this.reservedCostUsd + upcomingCost;
+    if (this.limits?.maxCostUsd !== undefined && (projectedCost > this.limits.maxCostUsd || (this.currentCostUsd + this.reservedCostUsd) >= this.limits.maxCostUsd)) {
+      throw new CircuitBreakerExceededError(
+        `Circuit breaker tripped: cost budget ceiling of $${this.limits.maxCostUsd.toFixed(2)} reached (current: $${(this.currentCostUsd + this.reservedCostUsd).toFixed(4)})`,
+        'cost',
+        projectedCost
+      );
+    }
+  }
+
+  /**
+   * Reserves budget synchronously before an LLM call starts.
+   * Calculates max possible tokens and max possible cost (input + max output tokens at provider rate).
+   * Ensures that concurrent calls, retries, and Tier 2 escalations cannot bypass ceilings.
+   */
+  public reserveCall(opts: ReserveCallOptions): ReservedCallAllocation {
+    const maxOutput = opts.maxOutputTokens ?? 4096;
+    const maxPossibleTokens = opts.estimatedTokensIn + maxOutput;
+    const pricingRes = calculateCallCostUsd(opts.provider, opts.model, opts.estimatedTokensIn, maxOutput);
+    const maxPossibleCost = pricingRes.costUsd ?? 0;
+
+    // Check ceilings before reserving
+    this.checkCeilings(1, maxPossibleTokens, maxPossibleCost);
+
+    // Atomically reserve synchronously before awaiting any I/O
+    this.reservedRequests += 1;
+    this.reservedTokens += maxPossibleTokens;
+    this.reservedCostUsd += maxPossibleCost;
+
+    let released = false;
+    const release = (actual?: { tokensIn: number; tokensOut: number; costUsd?: number | null }) => {
+      if (released) return;
+      released = true;
+
+      // Roll back the reservation
+      this.reservedRequests -= 1;
+      this.reservedTokens -= maxPossibleTokens;
+      this.reservedCostUsd -= maxPossibleCost;
+
+      // Commit actual consumption
+      this.currentRequests += 1;
+      if (actual) {
+        this.currentTokens += actual.tokensIn + actual.tokensOut;
+        if (actual.costUsd !== undefined && actual.costUsd !== null) {
+          this.currentCostUsd += actual.costUsd;
+        } else {
+          const actualPricing = calculateCallCostUsd(opts.provider, opts.model, actual.tokensIn, actual.tokensOut);
+          if (actualPricing.costUsd !== null) {
+            this.currentCostUsd += actualPricing.costUsd;
+          }
+        }
+      }
+    };
+
+    return {
+      id: Math.random().toString(36).slice(2),
+      provider: opts.provider,
+      model: opts.model,
+      reservedTokensIn: opts.estimatedTokensIn,
+      reservedTokensOut: maxOutput,
+      reservedCostUsd: maxPossibleCost,
+      release,
+    };
+  }
+
+  public commitExternalCall(tokensIn: number, tokensOut: number, costUsd: number | null): void {
+    const totTokens = tokensIn + tokensOut;
+    const cost = costUsd ?? 0;
+    this.checkCeilings(1, totTokens, cost);
+    this.currentRequests += 1;
+    this.currentTokens += totTokens;
+    if (costUsd !== null) {
+      this.currentCostUsd += costUsd;
+    }
+  }
+
+  public getStats() {
+    return {
+      currentRequests: this.currentRequests,
+      currentTokens: this.currentTokens,
+      currentCostUsd: Number(this.currentCostUsd.toFixed(6)),
+      reservedRequests: this.reservedRequests,
+      reservedTokens: this.reservedTokens,
+      reservedCostUsd: Number(this.reservedCostUsd.toFixed(6)),
+    };
+  }
+}
+
+/**
+ * Wraps an LlmProvider with CircuitBreakerGuard reservation.
+ * Every call to generate() (including retries, escalations, or concurrent calls)
+ * synchronously reserves tokens, request count, and cost against ceilings before dispatch.
+ */
+export function createGuardedProvider(
+  provider: LlmProvider,
+  guard: CircuitBreakerGuard
+): LlmProvider {
+  return {
+    name: provider.name,
+    model: provider.model,
+    isFree: provider.isFree,
+    async generate(input: LlmCallInput): Promise<LlmCallResult> {
+      const estimatedTokensIn = Math.ceil(
+        (input.prompt.length + (input.system?.length ?? 0)) / 4
+      );
+      const alloc = guard.reserveCall({
+        provider: provider.name,
+        model: provider.model,
+        estimatedTokensIn,
+        maxOutputTokens: input.maxOutputTokens ?? 1500,
+      });
+      try {
+        const res = await provider.generate(input);
+        alloc.release({ tokensIn: res.tokensIn, tokensOut: res.tokensOut });
+        return res;
+      } catch (err) {
+        alloc.release();
+        throw err;
+      }
+    },
+  };
+}
+
+export interface BenchmarkRunnerOptions {
+  tier1Provider?: string;
+  tier1Model?: string;
+  tier2Provider?: string;
+  tier2Model?: string;
+  limits?: CircuitBreakerLimits;
+}
+
 /**
  * Runner that executes benchmark variants on test fixtures.
  */
@@ -90,17 +308,16 @@ export class BenchmarkRunner {
   private tier1Model: string;
   private tier2Provider: string;
   private tier2Model: string;
+  public readonly limits?: CircuitBreakerLimits;
+  public readonly guard: CircuitBreakerGuard;
 
-  constructor(opts?: {
-    tier1Provider?: string;
-    tier1Model?: string;
-    tier2Provider?: string;
-    tier2Model?: string;
-  }) {
+  constructor(opts?: BenchmarkRunnerOptions) {
     this.tier1Provider = opts?.tier1Provider ?? 'mock';
     this.tier1Model = opts?.tier1Model ?? 'mock-economic';
     this.tier2Provider = opts?.tier2Provider ?? 'mock';
     this.tier2Model = opts?.tier2Model ?? 'mock-powerful';
+    this.limits = opts?.limits;
+    this.guard = new CircuitBreakerGuard(this.limits);
   }
 
   /**
@@ -111,7 +328,8 @@ export class BenchmarkRunner {
     cases: BenchmarkCase[],
     executor: (
       variantKey: VariantKey,
-      c: BenchmarkCase
+      c: BenchmarkCase,
+      guard?: CircuitBreakerGuard
     ) => Promise<{
       findings: ScoredFinding[];
       llmCalls: MockLlmCallRecord[];
@@ -128,6 +346,7 @@ export class BenchmarkRunner {
     let tier2Calls = 0;
     let cacheHits = 0;
     let cacheMisses = 0;
+    let totalDurationMs = 0;
 
     let realTokensIn = 0;
     let realTokensOut = 0;
@@ -139,8 +358,19 @@ export class BenchmarkRunner {
 
     return (async () => {
       for (const c of cases) {
-        const res = await executor(variantKey, c);
+        // Pre-check circuit breaker kill-switch and limits
+        this.guard.checkCeilings(1, 0, 0);
+
+        const initialGuardRequests = this.guard.getStats().currentRequests;
+
+        const res = await executor(variantKey, c, this.guard);
         scoredCases.push({ spec: c.spec, found: res.findings });
+        totalDurationMs += res.durationMs ?? 0;
+
+        let caseRealIn = 0;
+        let caseRealOut = 0;
+
+        const callsAlreadyTracked = this.guard.getStats().currentRequests > initialGuardRequests;
 
         for (const call of res.llmCalls) {
           if (call.isCacheHit) {
@@ -158,6 +388,8 @@ export class BenchmarkRunner {
             if (call.tier === 'tier1') tier1Calls += 1;
             if (call.tier === 'tier2') tier2Calls += 1;
 
+            caseRealIn += call.tokensIn;
+            caseRealOut += call.tokensOut;
             realTokensIn += call.tokensIn;
             realTokensOut += call.tokensOut;
 
@@ -168,13 +400,34 @@ export class BenchmarkRunner {
               // If any model's cost is unknown, set total realCostUsd to null to avoid underreporting
               realCostUsd = null;
             }
+
+            if (!callsAlreadyTracked) {
+              this.guard.commitExternalCall(call.tokensIn, call.tokensOut, costRes.costUsd);
+            }
           }
         }
 
-        // Track saved tokens from context reduction (baseline full diff vs targeted context)
-        if (res.baselineTokensIn && res.baselineTokensIn > realTokensIn) {
-          const deltaIn = res.baselineTokensIn - realTokensIn;
-          const deltaOut = Math.max(0, (res.baselineTokensOut ?? 0) - realTokensOut);
+        // Post-call check on cost and tokens ceiling
+        if (this.limits?.maxTokens && realTokensIn + realTokensOut >= this.limits.maxTokens) {
+          throw new CircuitBreakerExceededError(
+            `Circuit breaker tripped: token ceiling of ${this.limits.maxTokens} exceeded after case ${c.id} (current: ${realTokensIn + realTokensOut})`,
+            'tokens',
+            realTokensIn + realTokensOut
+          );
+        }
+        if (this.limits?.maxCostUsd && realCostUsd !== null && realCostUsd >= this.limits.maxCostUsd) {
+          throw new CircuitBreakerExceededError(
+            `Circuit breaker tripped: cost budget ceiling of $${this.limits.maxCostUsd.toFixed(2)} exceeded after case ${c.id} (current: $${realCostUsd.toFixed(4)})`,
+            'cost',
+            realCostUsd
+          );
+        }
+
+        // Track saved tokens from prompt context reduction (baseline full diff vs targeted context)
+        // Only applies if the case actually executed real calls (if it hit cache, saved tokens were already counted above)
+        if (caseRealIn > 0 && res.baselineTokensIn && res.baselineTokensIn > caseRealIn) {
+          const deltaIn = res.baselineTokensIn - caseRealIn;
+          const deltaOut = Math.max(0, (res.baselineTokensOut ?? 0) - caseRealOut);
           savedTokensIn += deltaIn;
           savedTokensOut += deltaOut;
           const costSaved = calculateCallCostUsd(this.tier2Provider, this.tier2Model, deltaIn, deltaOut);
@@ -185,8 +438,8 @@ export class BenchmarkRunner {
       }
 
       const quality = aggregateQualityMetrics(scoredCases);
-      const totalCallsEvaluated = tier1Calls + tier2Calls;
-      const tier2EscalationRate = totalCallsEvaluated > 0 ? Number((tier2Calls / totalCallsEvaluated).toFixed(4)) : null;
+      // Escalation rate is the fraction of Tier-1 triage calls that were escalated to Tier-2
+      const tier2EscalationRate = tier1Calls > 0 ? Number((tier2Calls / tier1Calls).toFixed(4)) : null;
       const totalCacheAttempts = cacheHits + cacheMisses;
       const cacheHitRate = totalCacheAttempts > 0 ? Number((cacheHits / totalCacheAttempts).toFixed(4)) : null;
 
@@ -212,8 +465,24 @@ export class BenchmarkRunner {
           description: 'Targeted context + Semgrep integration + Two-tier routing + Multi-file batching.',
         },
         optimized_pipeline: {
-          name: 'Optimized Pipeline (Full)',
+          name: 'Optimized Pipeline (Cold Cache)',
           description: 'Targeted context + Semgrep integration + Two-tier routing + Multi-file batching + PostgreSQL Cache.',
+        },
+        optimized_warm_cache: {
+          name: 'Optimized Pipeline (Warm Cache)',
+          description: 'Subsequent review of identical diff; 100% cache hit, 0 LLM calls, zero real token expense.',
+        },
+        free_tier_priority: {
+          name: 'Free-Tier Priority Mode',
+          description: 'Free models used for triage with verified free-tier limits, same-model escalation suppression, and strict quota protection blocking paid fallbacks.',
+        },
+        degraded_no_semgrep: {
+          name: 'Degraded Mode: No Semgrep',
+          description: 'Static analysis unavailable or binary missing; pipeline falls back gracefully to targeted diff analysis.',
+        },
+        degraded_no_db: {
+          name: 'Degraded Mode: No PostgreSQL',
+          description: 'Database connection failure; store falls back gracefully to in-memory cache without failing reviews.',
         },
       };
 
@@ -223,7 +492,8 @@ export class BenchmarkRunner {
         variantKey,
         name: meta.name,
         description: meta.description,
-        durationMs: Date.now() - startTime,
+        durationMs: totalDurationMs > 0 ? totalDurationMs : (Date.now() - startTime),
+        wallClockDurationMs: Date.now() - startTime,
         totalLlmCalls,
         tier1Calls,
         tier2Calls,

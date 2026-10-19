@@ -260,20 +260,20 @@ export type LlmProviderName = z.infer<typeof LlmProviderNameSchema>;
  * PUT /api/settings/llm. Every field optional; "" clears the dashboard value (the `.env` one applies
  * again). Keys are write-only: GET never returns them.
  */
-const optionalText = (max: number) => z.string().trim().max(max).optional();
+const optionalText = (max: number) => z.union([z.literal(''), z.string().trim().max(max)]).nullable().optional();
 export const UpdateLlmSettingsSchema = z.object({
   geminiApiKey: optionalText(300),
   openrouterApiKey: optionalText(300),
-  openaiCompatBaseUrl: z.union([z.literal(''), z.string().trim().url().max(300)]).optional(),
+  openaiCompatBaseUrl: z.union([z.literal(''), z.string().trim().url().max(300)]).nullable().optional(),
   openaiCompatApiKey: optionalText(300),
   anthropicApiKey: optionalText(300),
   openaiApiKey: optionalText(300),
-  llmProvider: z.union([z.literal(''), LlmProviderNameSchema]).optional(),
+  llmProvider: z.union([z.literal(''), LlmProviderNameSchema]).nullable().optional(),
   llmModel: optionalText(200),
-  llmFallbackProvider: z.union([z.literal(''), LlmProviderNameSchema]).optional(),
+  llmFallbackProvider: z.union([z.literal(''), LlmProviderNameSchema]).nullable().optional(),
   llmFallbackModel: optionalText(200),
   embeddingModel: optionalText(200),
-  embeddingProvider: z.union([z.literal(''), EmbeddingProviderNameSchema]).optional(), // '' = automatic
+  embeddingProvider: z.union([z.literal(''), z.literal('openai'), EmbeddingProviderNameSchema]).nullable().optional(), // '' = automatic
   openaiEmbeddingModel: optionalText(200),
 });
 export type UpdateLlmSettings = z.infer<typeof UpdateLlmSettingsSchema>;

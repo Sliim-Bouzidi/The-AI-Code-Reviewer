@@ -10,6 +10,7 @@ import { initGithub } from './github.js';
 import { runIndex } from './index/indexer.js';
 import { notifyIndex, notifyReview } from './notify.js';
 import { evalOwnerId, repoOwnerId, reviewOwnerId } from './owner.js';
+import { cleanExpiredLlmCache } from './review/llm-cache.js';
 import { runReview } from './review/pipeline.js';
 import { runTestGeneration } from './tests/test-generation-worker.js';
 
@@ -108,7 +109,21 @@ for (const w of workers) {
 }
 log('worker', 'ready', { queues: workers.map((w) => w.name) });
 
+// Periodically clean up expired LLM cache entries from PostgreSQL (every 6 hours)
+const CACHE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const cacheCleanupTimer = setInterval(() => {
+  cleanExpiredLlmCache(db, { batchSize: 500 })
+    .then((deleted) => {
+      if (deleted > 0) log('worker', 'cleaned expired LLM cache entries', { deleted });
+    })
+    .catch((err) => {
+      log('worker', 'failed to clean expired LLM cache', { error: (err as Error).message });
+    });
+}, CACHE_CLEANUP_INTERVAL_MS);
+cacheCleanupTimer.unref();
+
 const shutdown = async () => {
+  clearInterval(cacheCleanupTimer);
   await Promise.all(workers.map((w) => w.close()));
   process.exit(0);
 };
